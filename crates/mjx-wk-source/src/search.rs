@@ -1,6 +1,6 @@
 //! Searching across sources.
 //!
-//! **Owned by `docs/tasks/T-009-source-tree-and-search.md`.**
+//! **Owned by `docs/tasks/T-012-search.md`.**
 //!
 //! Two strategies, and the choice matters. `Page.searchInResources` searches
 //! everything the debuggee knows without transferring it — the right answer for
@@ -44,7 +44,7 @@ impl SearchIndex {
 
     /// Search cached sources. Synchronous and immediate.
     pub fn search_local(&self, _query: &SearchQuery) -> Vec<SearchHit> {
-        todo!("T-009")
+        todo!("T-012")
     }
 
     /// Search everything the debuggee has, via `Page.searchInResources`.
@@ -53,6 +53,6 @@ impl SearchIndex {
         _session: &mjx_wk_session::SessionHandle,
         _query: &SearchQuery,
     ) -> Result<Vec<SearchHit>, crate::SourceError> {
-        todo!("T-009")
+        todo!("T-012")
     }
 }

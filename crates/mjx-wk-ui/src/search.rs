@@ -1,6 +1,6 @@
 //! Search across sources.
 //!
-//! **Owned by `docs/tasks/T-009-source-tree-and-search.md`.**
+//! **Owned by `docs/tasks/T-012-search.md`.**
 
 use crate::{Action, PanelCtx};
 
@@ -26,6 +26,6 @@ impl SearchBar {
         _ctx: &PanelCtx<'_>,
         _hits: &[mjx_wk_source::SearchHit],
     ) -> Vec<Action> {
-        todo!("T-009")
+        todo!("T-012")
     }
 }

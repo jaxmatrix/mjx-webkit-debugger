@@ -1,6 +1,6 @@
 //! Fetching and caching source text.
 //!
-//! **Owned by `docs/tasks/T-005-source-text-store.md`.**
+//! **Owned by `docs/tasks/T-011-source-store.md`.**
 //!
 //! Two protocol paths, chosen by [`crate::SourceKind`]:
 //!
@@ -26,7 +26,7 @@ impl SourceStore {
     /// Bounded by total bytes rather than entry count, because entry sizes here
     /// differ by four orders of magnitude.
     pub fn new(_budget_bytes: usize) -> Self {
-        todo!("T-005")
+        todo!("T-011")
     }
 
     /// Text for a source, fetching it if it is not cached.
@@ -39,12 +39,12 @@ impl SourceStore {
         _session: &mjx_wk_session::SessionHandle,
         _id: SourceId,
     ) -> Result<Arc<SourceText>, SourceError> {
-        todo!("T-005")
+        todo!("T-011")
     }
 
     /// Cached text, if present. Never blocks — safe from the UI thread.
     pub fn cached(&self, _id: SourceId) -> Option<Arc<SourceText>> {
-        todo!("T-005")
+        todo!("T-011")
     }
 
     /// Drop everything.
@@ -52,11 +52,11 @@ impl SourceStore {
     /// Called on navigation: script ids are reissued, so stale text would be
     /// served under a new script's id.
     pub fn clear(&self) {
-        todo!("T-005")
+        todo!("T-011")
     }
 
     /// Bytes currently held.
     pub fn bytes_held(&self) -> usize {
-        todo!("T-005")
+        todo!("T-011")
     }
 }

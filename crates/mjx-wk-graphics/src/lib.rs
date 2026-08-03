@@ -81,14 +81,14 @@ impl DomainAgent for GraphicsAgent {
     const NAME: &'static str = "mjx-wk-graphics";
 
     async fn attach(&mut self, _session: &SessionHandle) -> Result<(), SessionError> {
-        todo!("Phase 7 — docs/tasks/T-702-graphics-panel.md")
+        todo!("Phase 7 — docs/tasks/T-702-canvas-inspection.md")
     }
 
     async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
-        todo!("Phase 7 — docs/tasks/T-702-graphics-panel.md")
+        todo!("Phase 7 — docs/tasks/T-702-canvas-inspection.md")
     }
 
     fn snapshot(&self) -> Arc<Self::Model> {
-        todo!("Phase 7 — docs/tasks/T-702-graphics-panel.md")
+        todo!("Phase 7 — docs/tasks/T-702-canvas-inspection.md")
     }
 }

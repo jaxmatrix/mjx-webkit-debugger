@@ -1,6 +1,6 @@
 //! Source text, and finding lines in it quickly.
 //!
-//! **Owned by `docs/tasks/T-005-source-text-store.md`.**
+//! **Owned by `docs/tasks/T-005-source-text.md`.**
 //!
 //! The hard case is not a 200-line module — it is a 5 MB minified bundle on one
 //! line, or a 200 000-line vendor file the user scrolls through. The virtualised

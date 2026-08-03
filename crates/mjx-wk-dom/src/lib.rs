@@ -70,14 +70,14 @@ impl DomainAgent for DomAgent {
     const NAME: &'static str = "mjx-wk-dom";
 
     async fn attach(&mut self, _session: &SessionHandle) -> Result<(), SessionError> {
-        todo!("Phase 6 — docs/tasks/T-601-dom-tree.md")
+        todo!("Phase 6 — docs/tasks/T-601-dom-model.md")
     }
 
     async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
-        todo!("Phase 6 — docs/tasks/T-601-dom-tree.md")
+        todo!("Phase 6 — docs/tasks/T-601-dom-model.md")
     }
 
     fn snapshot(&self) -> Arc<Self::Model> {
-        todo!("Phase 6 — docs/tasks/T-601-dom-tree.md")
+        todo!("Phase 6 — docs/tasks/T-601-dom-model.md")
     }
 }

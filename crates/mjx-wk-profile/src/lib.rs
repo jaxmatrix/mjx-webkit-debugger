@@ -93,14 +93,14 @@ impl DomainAgent for ProfileAgent {
     const NAME: &'static str = "mjx-wk-profile";
 
     async fn attach(&mut self, _session: &SessionHandle) -> Result<(), SessionError> {
-        todo!("Phase 5 — docs/tasks/T-501-profiling.md")
+        todo!("Phase 5 — docs/tasks/T-501-timeline.md")
     }
 
     async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
-        todo!("Phase 5 — docs/tasks/T-501-profiling.md")
+        todo!("Phase 5 — docs/tasks/T-501-timeline.md")
     }
 
     fn snapshot(&self) -> Arc<Self::Model> {
-        todo!("Phase 5 — docs/tasks/T-501-profiling.md")
+        todo!("Phase 5 — docs/tasks/T-501-timeline.md")
     }
 }

@@ -84,14 +84,14 @@ impl DomainAgent for StorageAgent {
     const NAME: &'static str = "mjx-wk-storage";
 
     async fn attach(&mut self, _session: &SessionHandle) -> Result<(), SessionError> {
-        todo!("Phase 7 — docs/tasks/T-701-storage-panel.md")
+        todo!("Phase 7 — docs/tasks/T-701-storage-model.md")
     }
 
     async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
-        todo!("Phase 7 — docs/tasks/T-701-storage-panel.md")
+        todo!("Phase 7 — docs/tasks/T-701-storage-model.md")
     }
 
     fn snapshot(&self) -> Arc<Self::Model> {
-        todo!("Phase 7 — docs/tasks/T-701-storage-panel.md")
+        todo!("Phase 7 — docs/tasks/T-701-storage-model.md")
     }
 }

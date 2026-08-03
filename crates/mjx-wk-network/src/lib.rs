@@ -116,14 +116,14 @@ impl DomainAgent for NetworkAgent {
     const NAME: &'static str = "mjx-wk-network";
 
     async fn attach(&mut self, _session: &SessionHandle) -> Result<(), SessionError> {
-        todo!("Phase 3 — docs/tasks/T-301-network-panel.md")
+        todo!("Phase 3 — docs/tasks/T-301-network-agent.md")
     }
 
     async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
-        todo!("Phase 3 — docs/tasks/T-301-network-panel.md")
+        todo!("Phase 3 — docs/tasks/T-301-network-agent.md")
     }
 
     fn snapshot(&self) -> Arc<Self::Model> {
-        todo!("Phase 3 — docs/tasks/T-301-network-panel.md")
+        todo!("Phase 3 — docs/tasks/T-301-network-agent.md")
     }
 }

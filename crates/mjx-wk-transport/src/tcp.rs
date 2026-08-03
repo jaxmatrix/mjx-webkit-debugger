@@ -38,7 +38,7 @@ impl TcpInspectorServer {
 
     /// Open a session to one target.
     ///
-    /// **Owned by `docs/tasks/T-002-websocket-transport.md`.**
+    /// **Owned by `docs/tasks/T-002-socket-transport.md`.**
     ///
     /// Sends `Setup { connectionID, targetID }`, then relays: an outgoing frame
     /// becomes `SendMessageToBackend`, and each `SendMessageToFrontend`'s

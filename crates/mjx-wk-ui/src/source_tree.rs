@@ -1,6 +1,6 @@
 //! The file tree.
 //!
-//! **Owned by `docs/tasks/T-009-source-tree-and-search.md`.**
+//! **Owned by `docs/tasks/T-009-source-tree.md`.**
 //!
 //! Grouped by origin, then by path. Must stay usable with ten thousand
 //! sources — a large site has that many — so rows are virtualised and the tree

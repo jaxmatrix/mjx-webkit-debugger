@@ -98,14 +98,14 @@ impl DomainAgent for CssAgent {
     const NAME: &'static str = "mjx-wk-css";
 
     async fn attach(&mut self, _session: &SessionHandle) -> Result<(), SessionError> {
-        todo!("Phase 6 — docs/tasks/T-602-styles-panel.md")
+        todo!("Phase 6 — docs/tasks/T-602-css-model.md")
     }
 
     async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
-        todo!("Phase 6 — docs/tasks/T-602-styles-panel.md")
+        todo!("Phase 6 — docs/tasks/T-602-css-model.md")
     }
 
     fn snapshot(&self) -> Arc<Self::Model> {
-        todo!("Phase 6 — docs/tasks/T-602-styles-panel.md")
+        todo!("Phase 6 — docs/tasks/T-602-css-model.md")
     }
 }

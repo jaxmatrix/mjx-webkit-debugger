@@ -1,4 +1,4 @@
-# T-703 — Audits
+# T-702 — Canvas contexts, recordings, and shader editing
 
 **Phase** 7 · **Milestone** v0.7 — Storage, graphics, audits
 **Blocked by** v0.1 complete · **Parallel-safe with** every other v0.7 ticket
@@ -12,23 +12,23 @@ and the relevant traps in [`docs/PROTOCOL-NOTES.md`](../PROTOCOL-NOTES.md).
 this ticket fills bodies. If a seam is genuinely wrong, that is a separate seam-change PR, merged
 first.
 
-Branch `t-703-audits`. **Commit atomically** — one reviewable idea per commit, each green on its own;
+Branch `t-702-canvas-inspection`. **Commit atomically** — one reviewable idea per commit, each green on its own;
 expect several commits from this ticket, not one. No `Co-Authored-By` trailer. See *Atomic commits*
 in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Goal
 
-Run scriptable assertions inside the debuggee. Done when a suite runs and its results link back to
-the nodes they point at.
+WebKit's canvas tooling, which Chromium has no equivalent for. Done when canvas contexts are
+listed, a frame can be recorded and stepped, and shader source can be edited live.
 
 ## Seam
 
-`AuditSuite`, `AuditResult`, `AuditLevel`, and `impl DomainAgent for AuditAgent`. Also owns `Inspector` and `Browser`, which belong to no panel of their own.
+`CanvasContext`, `ShaderProgram`, `CanvasRecording`, and the `Canvas`/`Recording` half of `GraphicsAgent`.
 
 ## Owns
 
-- `crates/mjx-wk-audit/src/lib.rs`
-- `crates/mjx-wk-ui/src/audit_view.rs` (new)
+- `crates/mjx-wk-graphics/src/canvas.rs` (new)
+- `crates/mjx-wk-ui/src/canvas_view.rs` (new)
 
 ## Must not touch
 
@@ -38,7 +38,7 @@ another** — if you need something another has, it belongs in `mjx-wk-source` (
 
 ## Fixtures
 
-A fixture suite with a passing test, a failing test, and one that throws.
+A recorded `Canvas` session — the fixture page needs a WebGL canvas adding.
 
 ## Done criteria
 
@@ -47,11 +47,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-- a suite runs via `Audit.setup`/`run`/`teardown` and results render by level;
-- a result naming nodes links through to the DOM panel;
-- a test that throws is reported as `Error`, distinctly from a test that fails;
-- `Inspector.inspect` (fired when the user picks an element) routes to the DOM panel;
-- `Browser` extension discovery is surfaced somewhere, even if minimally.
+- 2d, WebGL, WebGL2 and WebGPU contexts are listed with their backing node and memory;
+- a recording captures a frame and can be stepped call by call;
+- vertex and fragment source can be fetched, edited, and applied via `updateShader`;
+- a program can be disabled and highlighted;
+- over CDP the whole panel reports unsupported, which the dialect table already encodes.
 
 Plus: the panel renders **disabled, with a reason**, when `SessionHandle::supports` reports its
 members unavailable — checked against a CDP-dialect session as well as a WebKit one. Never hidden,
@@ -59,4 +59,4 @@ never silently broken.
 
 ## Notes
 
-`Audit` runs JavaScript inside the debuggee — closer to a scriptable assertion runner than to Lighthouse, and not a substitute for it. Say so in the UI so nobody expects a performance score.
+`Canvas` is 28 members. Live shader editing is the standout feature and the reason this is worth building despite having no Chromium counterpart.

@@ -1,4 +1,4 @@
-# T-703 — Audits
+# T-701 — Storage, IndexedDB, cookies and workers
 
 **Phase** 7 · **Milestone** v0.7 — Storage, graphics, audits
 **Blocked by** v0.1 complete · **Parallel-safe with** every other v0.7 ticket
@@ -12,23 +12,23 @@ and the relevant traps in [`docs/PROTOCOL-NOTES.md`](../PROTOCOL-NOTES.md).
 this ticket fills bodies. If a seam is genuinely wrong, that is a separate seam-change PR, merged
 first.
 
-Branch `t-703-audits`. **Commit atomically** — one reviewable idea per commit, each green on its own;
+Branch `t-701-storage-model`. **Commit atomically** — one reviewable idea per commit, each green on its own;
 expect several commits from this ticket, not one. No `Co-Authored-By` trailer. See *Atomic commits*
 in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Goal
 
-Run scriptable assertions inside the debuggee. Done when a suite runs and its results link back to
-the nodes they point at.
+Model what the page has stored. Done when storage areas, databases, cookies and workers are all
+enumerable and mutable.
 
 ## Seam
 
-`AuditSuite`, `AuditResult`, `AuditLevel`, and `impl DomainAgent for AuditAgent`. Also owns `Inspector` and `Browser`, which belong to no panel of their own.
+`StorageModel`, `DomStorageArea`, `IndexedDbDatabase`, `ObjectStore`, `Cookie`, and `impl DomainAgent for StorageAgent`.
 
 ## Owns
 
-- `crates/mjx-wk-audit/src/lib.rs`
-- `crates/mjx-wk-ui/src/audit_view.rs` (new)
+- `crates/mjx-wk-storage/src/lib.rs`
+- `crates/mjx-wk-storage/tests/storage.rs`
 
 ## Must not touch
 
@@ -38,7 +38,7 @@ another** — if you need something another has, it belongs in `mjx-wk-source` (
 
 ## Fixtures
 
-A fixture suite with a passing test, a failing test, and one that throws.
+`fixtures/storage.jsonl`.
 
 ## Done criteria
 
@@ -47,11 +47,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-- a suite runs via `Audit.setup`/`run`/`teardown` and results render by level;
-- a result naming nodes links through to the DOM panel;
-- a test that throws is reported as `Error`, distinctly from a test that fails;
-- `Inspector.inspect` (fired when the user picks an element) routes to the DOM panel;
-- `Browser` extension discovery is surfaced somewhere, even if minimally.
+- local and session storage enumerate per origin and update live via the four `DOMStorage` events;
+- IndexedDB databases, object stores and indexes enumerate, and entries page rather than loading
+  whole;
+- cookies read and write through **`Page`**, not a `Storage` domain;
+- workers and service workers are listed with their target ids.
 
 Plus: the panel renders **disabled, with a reason**, when `SessionHandle::supports` reports its
 members unavailable — checked against a CDP-dialect session as well as a WebKit one. Never hidden,
@@ -59,4 +59,4 @@ never silently broken.
 
 ## Notes
 
-`Audit` runs JavaScript inside the debuggee — closer to a scriptable assertion runner than to Lighthouse, and not a substitute for it. Say so in the UI so nobody expects a performance score.
+**WebKit has no `Storage` domain.** Cookies are `Page.getCookies`/`setCookie`/`deleteCookie`. Chrome moved them years ago, so CDP habits mislead here.

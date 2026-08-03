@@ -1,4 +1,4 @@
-# T-703 — Audits
+# T-705 — Layer tree and animations
 
 **Phase** 7 · **Milestone** v0.7 — Storage, graphics, audits
 **Blocked by** v0.1 complete · **Parallel-safe with** every other v0.7 ticket
@@ -12,23 +12,23 @@ and the relevant traps in [`docs/PROTOCOL-NOTES.md`](../PROTOCOL-NOTES.md).
 this ticket fills bodies. If a seam is genuinely wrong, that is a separate seam-change PR, merged
 first.
 
-Branch `t-703-audits`. **Commit atomically** — one reviewable idea per commit, each green on its own;
+Branch `t-705-layers-animations`. **Commit atomically** — one reviewable idea per commit, each green on its own;
 expect several commits from this ticket, not one. No `Co-Authored-By` trailer. See *Atomic commits*
 in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Goal
 
-Run scriptable assertions inside the debuggee. Done when a suite runs and its results link back to
-the nodes they point at.
+Why did this get its own layer, and what is animating. Done when compositing layers and running
+animations are both inspectable.
 
 ## Seam
 
-`AuditSuite`, `AuditResult`, `AuditLevel`, and `impl DomainAgent for AuditAgent`. Also owns `Inspector` and `Browser`, which belong to no panel of their own.
+`Layer`, `AnimationEntry`, and the `LayerTree`/`Animation` half of `GraphicsAgent`.
 
 ## Owns
 
-- `crates/mjx-wk-audit/src/lib.rs`
-- `crates/mjx-wk-ui/src/audit_view.rs` (new)
+- `crates/mjx-wk-graphics/src/layers.rs` (new)
+- `crates/mjx-wk-ui/src/layers_view.rs` (new)
 
 ## Must not touch
 
@@ -38,7 +38,7 @@ another** — if you need something another has, it belongs in `mjx-wk-source` (
 
 ## Fixtures
 
-A fixture suite with a passing test, a failing test, and one that throws.
+A recorded `LayerTree` and `Animation` session.
 
 ## Done criteria
 
@@ -47,11 +47,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-- a suite runs via `Audit.setup`/`run`/`teardown` and results render by level;
-- a result naming nodes links through to the DOM panel;
-- a test that throws is reported as `Error`, distinctly from a test that fails;
-- `Inspector.inspect` (fired when the user picks an element) routes to the DOM panel;
-- `Browser` extension discovery is surfaced somewhere, even if minimally.
+- layers list with bounds, memory, and their backing node;
+- **compositing reasons** are shown per layer — that is the question the panel exists to answer;
+- animations list with target, duration, iterations and playback rate;
+- playback rate can be changed and an animation seeked, so a transition can be inspected mid-flight.
 
 Plus: the panel renders **disabled, with a reason**, when `SessionHandle::supports` reports its
 members unavailable — checked against a CDP-dialect session as well as a WebKit one. Never hidden,
@@ -59,4 +58,4 @@ never silently broken.
 
 ## Notes
 
-`Audit` runs JavaScript inside the debuggee — closer to a scriptable assertion runner than to Lighthouse, and not a substitute for it. Say so in the UI so nobody expects a performance score.
+Coordinate with T-702 on `crates/mjx-wk-graphics/src/lib.rs`: that ticket owns the canvas half of `GraphicsModel`, this one the layers and animations half.

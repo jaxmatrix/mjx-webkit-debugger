@@ -1,0 +1,35 @@
+mjx-webkit-debugger
+Copyright 2026 The mjx-webkit-debugger authors
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+
+--------------------------------------------------------------------------------
+Third-party material
+--------------------------------------------------------------------------------
+
+This project speaks the WebKit Remote Inspector protocol and the Chrome DevTools
+Protocol. It contains no code from either project.
+
+The Rust types under `crates/mjx-wk-protocol/src/generated/` are produced by
+`xtask codegen` from the machine-readable protocol descriptions shipped with
+WebKit (`Source/JavaScriptCore/inspector/protocol/*.json`, BSD-2-Clause,
+Copyright Apple Inc. and others). Those descriptions are consulted locally and
+are NOT redistributed here — `reference/webkit-protocol/` is git-ignored. The
+generated Rust is an independent expression of the interface they describe and
+is covered by this project's Apache-2.0 licence.
+
+Protocol member names, domain names, and enum wire tokens are facts about an
+interface and are reproduced as required for interoperability.
+
+No part of this project links against, embeds, or bundles WebKit, WebKitGTK,
+WebView2, or any system webview. That is a hard architectural rule, enforced in
+CI by `cargo run -p xtask -- verify-no-webview`.

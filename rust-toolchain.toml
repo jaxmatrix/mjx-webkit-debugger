@@ -1,0 +1,6 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+# Cross-compile targets are installed in CI rather than pinned here, so a local
+# `cargo build` never triggers a network target-install.
+# See .github/workflows/ci.yml for the platform matrix.

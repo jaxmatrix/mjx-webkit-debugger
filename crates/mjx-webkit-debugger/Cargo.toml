@@ -1,0 +1,46 @@
+[package]
+name = "mjx-webkit-debugger"
+description = "L6 — the application. The only crate that knows about all the others."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mjx-wk-ui.workspace = true
+mjx-wk-session.workspace = true
+mjx-wk-transport.workspace = true
+mjx-wk-dialect.workspace = true
+mjx-wk-source.workspace = true
+mjx-wk-protocol.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_dock.workspace = true
+clap.workspace = true
+tracing-subscriber.workspace = true
+arc-swap.workspace = true
+anyhow.workspace = true
+mjx-wk-debug.workspace = true
+mjx-wk-console.workspace = true
+mjx-wk-network.workspace = true
+mjx-wk-dom.workspace = true
+mjx-wk-css.workspace = true
+mjx-wk-profile.workspace = true
+mjx-wk-storage.workspace = true
+mjx-wk-graphics.workspace = true
+mjx-wk-audit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[[bin]]
+name = "mjx-webkit-debugger"
+path = "src/main.rs"

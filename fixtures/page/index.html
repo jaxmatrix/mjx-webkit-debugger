@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mjx-webkit-debugger fixture page</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1 id="title">Fixture page</h1>
+  <p class="intro">A deliberately small page that exercises the domains the fixtures cover.</p>
+  <ul id="list"><li>one</li><li>two</li></ul>
+  <script>
+    // An inline script, so the document itself is a debuggable source.
+    window.__inlineMarker = 1;
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>

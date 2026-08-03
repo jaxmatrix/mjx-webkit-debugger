@@ -1,0 +1,5 @@
+:root { --fixture-accent: #2f6feb; }
+body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+h1 { color: var(--fixture-accent); font-size: 1.5rem; }
+.intro { color: #555; }
+#list li { padding: 2px 0; }

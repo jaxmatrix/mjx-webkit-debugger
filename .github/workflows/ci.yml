@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The application is cross-platform from day one, so the matrix is not a
+  # later concern — a Linux-only regression must fail here, not at release.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # eframe needs X11/Wayland development headers to build on Linux, even
+      # though nothing here opens a window in CI.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+            libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+
+      - run: cargo fmt --all --check
+      - run: cargo build --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+            libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      # 10 000 lines of generated protocol documentation, held to the same
+      # standard as everything else.
+      - run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  invariants:
+    name: architectural invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # The project's central claim: the debugger is not itself a WebKit
+      # program, so the debuggee cannot take it down. Enforced, not asserted.
+      - name: No webview in the dependency graph
+        run: cargo run -p xtask -- verify-no-webview
+
+      # WebKitGTK is installed only to be read: `verify-protocol` extracts the
+      # protocol description the build actually ships and diffs it against what
+      # we generated, so a WebKit upgrade is caught here rather than at runtime.
+      - name: Install WebKitGTK for protocol verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libglib2.0-bin
+
+      - name: Generated protocol matches the installed WebKit
+        run: |
+          # Ubuntu's WebKitGTK will not always match our pinned ref. Drift in
+          # the safe direction (we generated more than this build exposes) is
+          # reported and ignored; drift the other way fails the step.
+          cargo run -p xtask -- verify-protocol \
+            --library /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0 \
+            --allow-drift
+
+      # `reference/` is local-only material and must never be committed.
+      - name: reference/ is not staged
+        run: |
+          if git ls-files --error-unmatch reference/webkit-protocol >/dev/null 2>&1; then
+            echo "::error::reference/webkit-protocol/ is committed; it must stay git-ignored"
+            exit 1
+          fi
+
+      # The committed generated code must be what the generator produces.
+      - name: Generated code is up to date
+        run: |
+          if [ -d reference/webkit-protocol ]; then
+            cargo run -p xtask -- codegen
+            git diff --exit-code -- crates/mjx-wk-protocol/src/generated \
+              crates/mjx-wk-protocol/protocol-manifest.json
+          else
+            echo "reference/webkit-protocol/ absent (expected); skipping regeneration check"
+          fi

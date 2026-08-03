@@ -1,0 +1,25 @@
+# Rust build output
+/target
+**/*.rs.bk
+
+# WebKit inspector protocol material — kept LOCAL ONLY, never committed.
+# Regenerating `mjx-wk-protocol` requires these present locally; the generated
+# output under crates/mjx-wk-protocol/src/generated/ IS committed.
+# See reference/README.md for how to repopulate.
+/reference/webkit-protocol/
+/reference/chromium-protocol/
+/reference/*.js
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Fuzzing artifacts
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+
+# Recorder scratch — only curated traces belong in fixtures/
+/fixtures/*.raw.jsonl

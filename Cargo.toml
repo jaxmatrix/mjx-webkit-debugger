@@ -1,0 +1,127 @@
+[workspace]
+resolver = "3"
+members = [
+    # L0 — protocol
+    "crates/mjx-wk-protocol",
+    # L1 — wire
+    "crates/mjx-wk-dialect",
+    "crates/mjx-wk-transport",
+    # L2 — session
+    "crates/mjx-wk-session",
+    # L3 — source
+    "crates/mjx-wk-source",
+    # L4 — feature crates (peers; none may depend on another)
+    "crates/mjx-wk-debug",
+    "crates/mjx-wk-console",
+    "crates/mjx-wk-network",
+    "crates/mjx-wk-dom",
+    "crates/mjx-wk-css",
+    "crates/mjx-wk-profile",
+    "crates/mjx-wk-storage",
+    "crates/mjx-wk-graphics",
+    "crates/mjx-wk-audit",
+    # L5 — widgets
+    "crates/mjx-wk-ui",
+    # L6 — the app
+    "crates/mjx-webkit-debugger",
+    # tooling (ships nothing)
+    "xtask",
+]
+exclude = ["reference"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# egui 0.35 requires 1.92; do not lower without checking the UI stack.
+rust-version = "1.92.0"
+license = "Apache-2.0"
+repository = "https://github.com/jaxmatrix/mjx-webkit-debugger"
+publish = false
+
+[workspace.lints.rust]
+# The debuggee is untrusted input. Nothing here needs raw pointers.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+# Library paths parse untrusted protocol frames; a panic there is a crash on hostile input.
+unwrap_used = "warn"
+expect_used = "warn"
+
+[workspace.dependencies]
+mjx-wk-protocol = { path = "crates/mjx-wk-protocol" }
+mjx-wk-dialect = { path = "crates/mjx-wk-dialect" }
+mjx-wk-transport = { path = "crates/mjx-wk-transport" }
+mjx-wk-session = { path = "crates/mjx-wk-session" }
+mjx-wk-source = { path = "crates/mjx-wk-source" }
+mjx-wk-debug = { path = "crates/mjx-wk-debug" }
+mjx-wk-console = { path = "crates/mjx-wk-console" }
+mjx-wk-network = { path = "crates/mjx-wk-network" }
+mjx-wk-dom = { path = "crates/mjx-wk-dom" }
+mjx-wk-css = { path = "crates/mjx-wk-css" }
+mjx-wk-profile = { path = "crates/mjx-wk-profile" }
+mjx-wk-storage = { path = "crates/mjx-wk-storage" }
+mjx-wk-graphics = { path = "crates/mjx-wk-graphics" }
+mjx-wk-audit = { path = "crates/mjx-wk-audit" }
+mjx-wk-ui = { path = "crates/mjx-wk-ui" }
+
+# Core
+serde = { version = "1", features = ["derive"] }
+# preserve_order keeps recorded fixtures byte-comparable; raw_value avoids
+# re-parsing Target.* payloads that arrive as embedded JSON strings.
+serde_json = { version = "1.0.151", features = ["preserve_order", "raw_value"] }
+thiserror = "2.0.19"
+async-trait = "0.1.91"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "net", "time", "io-util", "process"] }
+futures = "0.3.33"
+arc-swap = "1.9.2"
+url = { version = "2.5.8", features = ["serde"] }
+percent-encoding = "2.3.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+clap = { version = "4.6.5", features = ["derive"] }
+
+# Wire
+tokio-tungstenite = "0.30.0"
+scraper = "0.27.0"
+
+# Source
+tree-sitter = "0.26.11"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-css = "0.25.0"
+tree-sitter-html = "0.23.2"
+sourcemap = "9.3.2"
+
+# UI — egui/eframe/egui_dock must stay on the same minor.
+#
+# `default-features = false` drops eframe's glow renderer (we want wgpu) but it
+# also drops the winit windowing backends, and winit refuses to compile for a
+# platform with none selected. `x11` and `wayland` are Linux-only features that
+# are inert elsewhere, so they are listed unconditionally.
+egui = "0.35.0"
+eframe = { version = "0.35.0", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "x11",
+    "wayland",
+] }
+egui_extras = "0.35.0"
+egui_dock = "0.20.1"
+
+# Tooling and tests only — never a dependency of a shipped crate.
+anyhow = "1.0.104"
+heck = "0.5.0"
+egui_kittest = "0.35.0"
+
+[profile.dev]
+opt-level = 0
+debug = 1
+
+# The debugger must stay responsive while parsing multi-megabyte bundles, so
+# dependencies are optimised even in dev builds.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

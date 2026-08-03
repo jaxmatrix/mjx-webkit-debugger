@@ -1,0 +1,6 @@
+# `unwrap_used` / `expect_used` are denied in library paths because the debuggee
+# is untrusted input — a panic there is a crash on hostile data. Tests are the
+# opposite case: a failed unwrap *is* the assertion.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

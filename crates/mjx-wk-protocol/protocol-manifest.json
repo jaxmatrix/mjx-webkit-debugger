@@ -1,0 +1,506 @@
+{
+  "pinned_ref": "webkitgtk-2.52.3",
+  "domains": {
+    "Animation": {
+      "commands": [
+        "enable",
+        "disable",
+        "requestEffect",
+        "requestEffectTarget",
+        "resolveAnimation",
+        "startTracking",
+        "stopTracking"
+      ],
+      "events": [
+        "animationCreated",
+        "nameChanged",
+        "effectChanged",
+        "targetChanged",
+        "animationDestroyed",
+        "trackingStart",
+        "trackingUpdate",
+        "trackingComplete"
+      ]
+    },
+    "Audit": {
+      "commands": [
+        "setup",
+        "run",
+        "teardown"
+      ],
+      "events": []
+    },
+    "Browser": {
+      "commands": [
+        "enable",
+        "disable"
+      ],
+      "events": [
+        "extensionsEnabled",
+        "extensionsDisabled"
+      ]
+    },
+    "CPUProfiler": {
+      "commands": [
+        "startTracking",
+        "stopTracking"
+      ],
+      "events": [
+        "trackingStart",
+        "trackingUpdate",
+        "trackingComplete"
+      ]
+    },
+    "CSS": {
+      "commands": [
+        "enable",
+        "disable",
+        "getMatchedStylesForNode",
+        "getInlineStylesForNode",
+        "getComputedStyleForNode",
+        "getFontDataForNode",
+        "getAllStyleSheets",
+        "getStyleSheet",
+        "getStyleSheetText",
+        "setStyleSheetText",
+        "setStyleText",
+        "setRuleSelector",
+        "setGroupingHeaderText",
+        "createStyleSheet",
+        "addRule",
+        "getSupportedCSSProperties",
+        "getSupportedSystemFontFamilyNames",
+        "forcePseudoState",
+        "setLayoutContextTypeChangedMode"
+      ],
+      "events": [
+        "mediaQueryResultChanged",
+        "styleSheetChanged",
+        "styleSheetAdded",
+        "styleSheetRemoved",
+        "nodeLayoutFlagsChanged"
+      ]
+    },
+    "Canvas": {
+      "commands": [
+        "enable",
+        "disable",
+        "requestNode",
+        "requestContent",
+        "requestClientNodes",
+        "resolveContext",
+        "setRecordingAutoCaptureFrameCount",
+        "startRecording",
+        "stopRecording",
+        "requestShaderSource",
+        "updateShader",
+        "setShaderProgramDisabled",
+        "setShaderProgramHighlighted"
+      ],
+      "events": [
+        "canvasAdded",
+        "canvasRemoved",
+        "canvasSizeChanged",
+        "canvasMemoryChanged",
+        "extensionEnabled",
+        "clientNodesChanged",
+        "recordingStarted",
+        "recordingProgress",
+        "recordingFinished",
+        "programCreated",
+        "programDeleted"
+      ]
+    },
+    "Console": {
+      "commands": [
+        "enable",
+        "disable",
+        "clearMessages",
+        "setConsoleClearAPIEnabled",
+        "getLoggingChannels",
+        "setLoggingChannelLevel"
+      ],
+      "events": [
+        "messageAdded",
+        "messageRepeatCountUpdated",
+        "messagesCleared",
+        "heapSnapshot"
+      ]
+    },
+    "DOM": {
+      "commands": [
+        "getDocument",
+        "requestChildNodes",
+        "requestAssignedSlot",
+        "requestAssignedNodes",
+        "querySelector",
+        "querySelectorAll",
+        "setNodeName",
+        "setNodeValue",
+        "removeNode",
+        "setAttributeValue",
+        "setAttributesAsText",
+        "removeAttribute",
+        "getSupportedEventNames",
+        "getDataBindingsForNode",
+        "getAssociatedDataForNode",
+        "getEventListenersForNode",
+        "setEventListenerDisabled",
+        "setBreakpointForEventListener",
+        "removeBreakpointForEventListener",
+        "getAccessibilityPropertiesForNode",
+        "getOuterHTML",
+        "setOuterHTML",
+        "insertAdjacentHTML",
+        "performSearch",
+        "getSearchResults",
+        "discardSearchResults",
+        "requestNode",
+        "setInspectModeEnabled",
+        "highlightRect",
+        "highlightQuad",
+        "highlightSelector",
+        "highlightNode",
+        "highlightNodeList",
+        "hideHighlight",
+        "highlightFrame",
+        "showGridOverlay",
+        "hideGridOverlay",
+        "showFlexOverlay",
+        "hideFlexOverlay",
+        "pushNodeByPathToFrontend",
+        "resolveNode",
+        "getAttributes",
+        "moveTo",
+        "undo",
+        "redo",
+        "markUndoableState",
+        "focus",
+        "setInspectedNode",
+        "setAllowEditingUserAgentShadowTrees",
+        "getMediaStats"
+      ],
+      "events": [
+        "documentUpdated",
+        "inspect",
+        "setChildNodes",
+        "attributeModified",
+        "attributeRemoved",
+        "inlineStyleInvalidated",
+        "characterDataModified",
+        "childNodeCountUpdated",
+        "childNodeInserted",
+        "childNodeRemoved",
+        "willDestroyDOMNode",
+        "shadowRootPushed",
+        "shadowRootPopped",
+        "customElementStateChanged",
+        "pseudoElementAdded",
+        "pseudoElementRemoved",
+        "didAddEventListener",
+        "willRemoveEventListener",
+        "didFireEvent",
+        "powerEfficientPlaybackStateChanged"
+      ]
+    },
+    "DOMDebugger": {
+      "commands": [
+        "setDOMBreakpoint",
+        "removeDOMBreakpoint",
+        "setEventBreakpoint",
+        "removeEventBreakpoint",
+        "setURLBreakpoint",
+        "removeURLBreakpoint"
+      ],
+      "events": []
+    },
+    "DOMStorage": {
+      "commands": [
+        "enable",
+        "disable",
+        "getDOMStorageItems",
+        "setDOMStorageItem",
+        "removeDOMStorageItem",
+        "clearDOMStorageItems"
+      ],
+      "events": [
+        "domStorageItemsCleared",
+        "domStorageItemRemoved",
+        "domStorageItemAdded",
+        "domStorageItemUpdated"
+      ]
+    },
+    "Debugger": {
+      "commands": [
+        "enable",
+        "disable",
+        "setAsyncStackTraceDepth",
+        "setBreakpointsActive",
+        "setBreakpointByUrl",
+        "setBreakpoint",
+        "removeBreakpoint",
+        "addSymbolicBreakpoint",
+        "removeSymbolicBreakpoint",
+        "continueUntilNextRunLoop",
+        "continueToLocation",
+        "stepNext",
+        "stepOver",
+        "stepInto",
+        "stepOut",
+        "pause",
+        "resume",
+        "searchInContent",
+        "getScriptSource",
+        "getFunctionDetails",
+        "getBreakpointLocations",
+        "setPauseOnDebuggerStatements",
+        "setPauseOnExceptions",
+        "setPauseOnAssertions",
+        "setPauseOnMicrotasks",
+        "setPauseForInternalScripts",
+        "evaluateOnCallFrame",
+        "setShouldBlackboxURL",
+        "setBlackboxBreakpointEvaluations"
+      ],
+      "events": [
+        "globalObjectCleared",
+        "scriptParsed",
+        "scriptFailedToParse",
+        "breakpointResolved",
+        "paused",
+        "resumed",
+        "didSampleProbe",
+        "playBreakpointActionSound"
+      ]
+    },
+    "Heap": {
+      "commands": [
+        "enable",
+        "disable",
+        "gc",
+        "snapshot",
+        "startTracking",
+        "stopTracking",
+        "getPreview",
+        "getRemoteObject"
+      ],
+      "events": [
+        "garbageCollected",
+        "trackingStart",
+        "trackingComplete"
+      ]
+    },
+    "IndexedDB": {
+      "commands": [
+        "enable",
+        "disable",
+        "requestDatabaseNames",
+        "requestDatabase",
+        "requestData",
+        "clearObjectStore"
+      ],
+      "events": []
+    },
+    "Inspector": {
+      "commands": [
+        "enable",
+        "disable",
+        "initialized"
+      ],
+      "events": [
+        "evaluateForTestInFrontend",
+        "inspect"
+      ]
+    },
+    "LayerTree": {
+      "commands": [
+        "enable",
+        "disable",
+        "layersForNode",
+        "reasonsForCompositingLayer",
+        "requestContent"
+      ],
+      "events": [
+        "layerTreeDidChange"
+      ]
+    },
+    "Memory": {
+      "commands": [
+        "enable",
+        "disable",
+        "startTracking",
+        "stopTracking"
+      ],
+      "events": [
+        "memoryPressure",
+        "trackingStart",
+        "trackingUpdate",
+        "trackingComplete"
+      ]
+    },
+    "Network": {
+      "commands": [
+        "enable",
+        "disable",
+        "setExtraHTTPHeaders",
+        "getResponseBody",
+        "setResourceCachingDisabled",
+        "loadResource",
+        "getSerializedCertificate",
+        "resolveWebSocket",
+        "setInterceptionEnabled",
+        "addInterception",
+        "removeInterception",
+        "interceptContinue",
+        "interceptWithRequest",
+        "interceptWithResponse",
+        "interceptRequestWithResponse",
+        "interceptRequestWithError",
+        "setEmulatedConditions"
+      ],
+      "events": [
+        "requestWillBeSent",
+        "responseReceived",
+        "dataReceived",
+        "loadingFinished",
+        "loadingFailed",
+        "requestServedFromMemoryCache",
+        "requestIntercepted",
+        "responseIntercepted",
+        "webSocketWillSendHandshakeRequest",
+        "webSocketHandshakeResponseReceived",
+        "webSocketCreated",
+        "webSocketClosed",
+        "webSocketFrameReceived",
+        "webSocketFrameError",
+        "webSocketFrameSent"
+      ]
+    },
+    "Page": {
+      "commands": [
+        "enable",
+        "disable",
+        "reload",
+        "overrideUserAgent",
+        "overrideSetting",
+        "overrideUserPreference",
+        "getCookies",
+        "setCookie",
+        "deleteCookie",
+        "getResourceTree",
+        "getResourceContent",
+        "setBootstrapScript",
+        "searchInResource",
+        "searchInResources",
+        "setShowRulers",
+        "setShowPaintRects",
+        "setEmulatedMedia",
+        "snapshotNode",
+        "snapshotRect",
+        "archive",
+        "setScreenSizeOverride"
+      ],
+      "events": [
+        "domContentEventFired",
+        "loadEventFired",
+        "frameNavigated",
+        "frameDetached",
+        "defaultUserPreferencesDidChange"
+      ]
+    },
+    "Recording": {
+      "commands": [],
+      "events": []
+    },
+    "Runtime": {
+      "commands": [
+        "parse",
+        "evaluate",
+        "awaitPromise",
+        "callFunctionOn",
+        "getPreview",
+        "getProperties",
+        "getDisplayableProperties",
+        "getCollectionEntries",
+        "saveResult",
+        "setSavedResultAlias",
+        "releaseObject",
+        "releaseObjectGroup",
+        "enable",
+        "disable",
+        "getRuntimeTypesForVariablesAtOffsets",
+        "enableTypeProfiler",
+        "disableTypeProfiler",
+        "enableControlFlowProfiler",
+        "disableControlFlowProfiler",
+        "getBasicBlocks"
+      ],
+      "events": [
+        "executionContextCreated"
+      ]
+    },
+    "ScriptProfiler": {
+      "commands": [
+        "startTracking",
+        "stopTracking"
+      ],
+      "events": [
+        "trackingStart",
+        "trackingUpdate",
+        "trackingComplete"
+      ]
+    },
+    "Security": {
+      "commands": [],
+      "events": []
+    },
+    "ServiceWorker": {
+      "commands": [
+        "getInitializationInfo"
+      ],
+      "events": []
+    },
+    "Target": {
+      "commands": [
+        "setPauseOnStart",
+        "resume",
+        "sendMessageToTarget"
+      ],
+      "events": [
+        "targetCreated",
+        "targetDestroyed",
+        "didCommitProvisionalTarget",
+        "dispatchMessageFromTarget"
+      ]
+    },
+    "Timeline": {
+      "commands": [
+        "enable",
+        "disable",
+        "start",
+        "stop",
+        "setAutoCaptureEnabled",
+        "setInstruments"
+      ],
+      "events": [
+        "eventRecorded",
+        "recordingStarted",
+        "recordingStopped",
+        "autoCaptureStarted"
+      ]
+    },
+    "Worker": {
+      "commands": [
+        "enable",
+        "disable",
+        "initialized",
+        "sendMessageToWorker"
+      ],
+      "events": [
+        "workerCreated",
+        "workerTerminated",
+        "dispatchMessageFromWorker"
+      ]
+    }
+  }
+}

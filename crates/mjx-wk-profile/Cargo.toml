@@ -1,0 +1,25 @@
+[package]
+name = "mjx-wk-profile"
+description = "L4 — timeline, sampling profiles, memory, and heap snapshots."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mjx-wk-protocol.workspace = true
+mjx-wk-dialect.workspace = true
+mjx-wk-session.workspace = true
+mjx-wk-source.workspace = true
+arc-swap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true

@@ -1,4 +1,4 @@
-# T — Lazy, paginated variable tree
+# T-203 — Lazy, paginated variable tree
 
 Phase: 2  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 2+ task
 

@@ -1,4 +1,4 @@
-# T — App shell, dock, and wiring
+# T-010 — App shell, dock, and wiring
 
 Phase: 1  ·  Depends on: none (seams only)  ·  Parallel-safe with: all others in Phase 1
 

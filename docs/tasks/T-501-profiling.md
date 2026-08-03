@@ -1,4 +1,4 @@
-# T — Timeline, profiles, and heap
+# T-501 — Timeline, profiles, and heap
 
 Phase: 5  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 5+ task
 

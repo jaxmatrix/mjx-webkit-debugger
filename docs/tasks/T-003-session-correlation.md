@@ -1,4 +1,4 @@
-# T — Session correlation, event fan-out, and Target.* demux
+# T-003 — Session correlation, event fan-out, and Target.* demux
 
 Phase: 1  ·  Depends on: none  ·  Parallel-safe with: T-001…T-002, T-004…T-010
 

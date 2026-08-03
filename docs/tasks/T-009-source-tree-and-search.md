@@ -1,4 +1,4 @@
-# T — Source tree and search widgets
+# T-009 — Source tree and search widgets
 
 Phase: 1  ·  Depends on: none  ·  Parallel-safe with: all others in Phase 1
 

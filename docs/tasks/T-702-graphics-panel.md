@@ -1,4 +1,4 @@
-# T — Canvas, layers, and animations
+# T-702 — Canvas, layers, and animations
 
 Phase: 7  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 7+ task
 

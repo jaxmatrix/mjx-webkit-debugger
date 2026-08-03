@@ -1,4 +1,4 @@
-# T — Styles and Computed panels
+# T-602 — Styles and Computed panels
 
 Phase: 6  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 6+ task
 

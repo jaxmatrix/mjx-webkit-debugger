@@ -1,4 +1,4 @@
-# T — Transport over the inspector socket
+# T-002 — Transport over the inspector socket
 
 Phase: 1  ·  Depends on: T-000, T-001  ·  Parallel-safe with: T-003…T-010
 

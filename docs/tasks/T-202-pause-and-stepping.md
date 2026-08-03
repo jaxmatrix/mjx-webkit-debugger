@@ -1,4 +1,4 @@
-# T — Pause state, call stack, and stepping
+# T-202 — Pause state, call stack, and stepping
 
 Phase: 2  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 2+ task
 

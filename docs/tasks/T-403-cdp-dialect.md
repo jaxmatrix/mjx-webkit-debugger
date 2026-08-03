@@ -1,4 +1,4 @@
-# T — CDP dialect, transport, and Android
+# T-403 — CDP dialect, transport, and Android
 
 Phase: 4  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 4+ task
 

@@ -1,4 +1,4 @@
-# T — Socket protocol framing and target discovery
+# T-001 — Socket protocol framing and target discovery
 
 Phase: 1  ·  Depends on: T-000  ·  Parallel-safe with: T-003…T-010
 

@@ -1,4 +1,4 @@
-# T — Tree-sitter highlighting
+# T-006 — Tree-sitter highlighting
 
 Phase: 1  ·  Depends on: none  ·  Parallel-safe with: all others in Phase 1
 

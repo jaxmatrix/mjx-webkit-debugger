@@ -1,4 +1,4 @@
-# T — Console panel and evaluation
+# T-204 — Console panel and evaluation
 
 Phase: 2  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 2+ task
 

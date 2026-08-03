@@ -1,4 +1,4 @@
-# T — macOS and iOS transports, plus the iOS 17 spike
+# T-300 — macOS and iOS transports, plus the iOS 17 spike
 
 Phase: 3  ·  Depends on: Phase 1 complete  ·  Parallel-safe with: every other Phase 3+ task
 

@@ -1,4 +1,4 @@
-# T — Script and resource inventory
+# T-004 — Script and resource inventory
 
 Phase: 1  ·  Depends on: none  ·  Parallel-safe with: all others in Phase 1
 

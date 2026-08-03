@@ -37,7 +37,10 @@ browse every source file, set breakpoints, pause, inspect state.
   increment green. A test that needs a running browser is a test that will not run in CI.
 - **Do the work thoroughly and correctly — no monkey-patching.** Optimize the design (memory,
   speed, reliability) *before* coding.
-- **Atomic commits, no `Co-Authored-By` / AI-attribution trailers.**
+- **Atomic commits** — one reviewable idea each, green on its own. A ticket produces several
+  commits, not one; scaffolding is a sequence, not a single drop. See *Atomic commits* in
+  [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- **No `Co-Authored-By` or any AI-attribution trailer**, in commits or PR bodies.
 - **Say what is true.** If a feature is not implemented, the README says so rather than the UI
   pretending. `docs/CHROME-PARITY.md` tracks the gaps honestly.
 

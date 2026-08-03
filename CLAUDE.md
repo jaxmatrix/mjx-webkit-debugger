@@ -143,10 +143,13 @@ cargo run -p xtask -- record --scenario attach --save-targets-page
 
 ## Git / commits
 
-- **Project-setup commits go on `main`;** once features start, **branch per task + open a PR**.
-- **Atomic commits** (one self-contained change); commit only when `cargo build` and
-  `cargo test --workspace` are green.
-- **Do NOT add `Co-Authored-By` or any AI-attribution trailer.**
+- **Atomic commits.** One reviewable idea per commit, each building and testing green *on its own*.
+  A ticket produces four to eight commits, not one, and scaffolding is a sequence rather than a
+  single drop. If the subject needs an "and", it is two commits. The full rule, with its worked
+  example and size heuristic, is *Atomic commits* in [`CONTRIBUTING.md`](CONTRIBUTING.md) — read it
+  before your first commit here.
+- **Do NOT add `Co-Authored-By` or any AI-attribution trailer**, in commits or PR bodies.
+- **Project-setup commits go on `main`;** once features start, **branch per ticket + open a PR**.
 - `reference/` is git-ignored — never stage it. Fixtures belong in `fixtures/`.
 
 ## Say what is true

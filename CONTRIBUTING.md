@@ -107,14 +107,46 @@ PR description — it usually means the seam missed something, which is worth kn
 - Comments explain *why*, not *what*. The protocol has a lot of non-obvious behaviour, and a
   comment recording which trap a line avoids is worth more than one restating the line.
 
-## Git & commit conventions
+## Atomic commits
 
-- **Atomic commits** — one self-contained change per commit. Split unrelated changes.
-- **Commit only when green** — a test is committed with or before the code it covers.
-- **No `Co-Authored-By` or AI-attribution trailers.** Keep messages plain: imperative subject, body
-  explaining *why*. Conventional-commit prefixes are encouraged: `feat(session):`, `fix(dialect):`,
-  `chore:`, `docs:`, `test:`, `refactor:`.
-- **Branching:** setup commits go directly on `main`. Once task work begins, branch per task
+**One commit, one reviewable idea.** Three tests, any of which settles it:
+
+- if the subject line needs an "and", it is two commits;
+- if a reviewer must hold two unrelated changes in their head at once, it is two commits;
+- if reverting it would take back something unrelated, it is two commits.
+
+**A ticket is not a commit.** A normal ticket produces four to eight, in an order that tells the
+story of the change:
+
+```text
+test(source): failing round-trip for the resource-tree merge
+feat(source): merge scriptParsed and getResourceTree into one inventory
+feat(source): stable SourceId across navigation
+fix(source): keep the frameId that getResourceContent needs
+docs(source): record why script ids die but entries do not
+```
+
+**Scaffolding is not an exemption.** Landing sixteen crates is a sequence — the workspace, then
+each layer, then the generator, then the output it produced — not one commit. Large *generated*
+diffs are fine, but they are their own commit, separate from the generator that produced them.
+
+**Commit only when green.** Every commit builds and tests clean *on its own*, so `git bisect` and
+`git revert` mean something. A commit that compiles only once the next one lands is not atomic, it
+is a fragment.
+
+**Rough shape, not a rule:** most commits touch under ~10 files. Well past that, say why in the
+body — "regenerated protocol bindings", "workspace-wide rename" — or split it.
+
+> This section exists because the rule used to be a single bullet reading "atomic commits — one
+> self-contained change", and the Phase 1a scaffolding landed as 157 files in one commit without
+> breaking anything that was written down. A rule that cannot be applied is not a rule.
+
+## Git conventions
+
+- **No `Co-Authored-By` or AI-attribution trailers.** Not in commits, not in PR bodies. Keep
+  messages plain: imperative subject, body explaining *why*. Conventional-commit prefixes are
+  encouraged: `feat(session):`, `fix(dialect):`, `chore:`, `docs:`, `test:`, `refactor:`.
+- **Branching:** setup commits go directly on `main`. Once task work begins, branch per ticket
   (`t-004-source-inventory`) and consolidate via a pull request.
 - **Never stage `reference/`** — it is git-ignored local-only material. Fixtures go in `fixtures/`.
 

@@ -111,14 +111,24 @@ pub struct RecordArgs {
 /// Values harvested from replies/events so later steps can be dynamic.
 #[derive(Debug, Default)]
 struct Ctx {
+    /// The page target WebKitGTK multiplexes domain traffic through.
+    /// Observed as `Target.targetCreated` with `type: "page"`.
+    page_target_id: Option<String>,
     security_origin: Option<String>,
     document_node_id: Option<i64>,
     element_node_id: Option<i64>,
     pause_object_id: Option<String>,
     /// URL substring → scriptId, from `Debugger.scriptParsed`.
     scripts: HashMap<String, String>,
+    /// A non-page target (provisional / worker / frame) for target-multiplexed.
     target_id: Option<String>,
     worker_id: Option<String>,
+}
+
+/// `Target.*` speaks on the root connection; every other domain is reached by
+/// wrapping the frame in `Target.sendMessageToTarget` aimed at the page target.
+fn is_root_method(method: &str) -> bool {
+    method.starts_with("Target.")
 }
 
 /// One step of a scripted scenario.
@@ -191,8 +201,28 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
         "network-load" => {
             let mut s = enable();
             s.push(Step::Call("Network.enable", || json!({})));
-            s.push(Step::Call("Page.reload", || json!({})));
-            s.push(Step::Settle(6000));
+            // Re-run network activity *after* Network.enable so WS / 404 are observed.
+            s.push(Step::Call("Runtime.evaluate", || {
+                json!({
+                    "expression": r#"(async () => {
+                        fetch('data.json').catch(() => {});
+                        fetch('missing-404.json').catch(() => {});
+                        try {
+                          const ws = new WebSocket('ws://127.0.0.1:8732');
+                          await new Promise((resolve, reject) => {
+                            ws.onopen = () => { ws.send('fixture-ping'); resolve(true); };
+                            ws.onerror = reject;
+                            setTimeout(reject, 2000);
+                          });
+                          ws.close();
+                        } catch (e) {}
+                        return 'network-triggered';
+                    })()"#,
+                    "returnByValue": true,
+                    "awaitPromise": true,
+                })
+            }));
+            s.push(Step::Settle(5000));
             s
         }
 
@@ -274,75 +304,89 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
             s
         }
 
-        // Navigate to the multi-MB script host, then getScriptSource.
+        // Navigate via location.assign — WebKitGTK has no Page.navigate.
         "large-bundle" => {
             let mut s = enable();
-            s.push(Step::Call("Page.navigate", || {
-                json!({ "url": format!("{FIXTURE_ORIGIN}/large.html") })
+            s.push(Step::Call("Runtime.evaluate", || {
+                json!({
+                    "expression": format!(
+                        "window.location.assign('{FIXTURE_ORIGIN}/large.html'); 'navigating'"
+                    ),
+                    "returnByValue": true,
+                })
             }));
-            s.push(Step::Await("Debugger.scriptParsed", 10_000));
-            s.push(Step::Settle(2000));
+            s.push(Step::Settle(4000));
             s.push(Step::CallCtx("Debugger.getScriptSource", |ctx| {
                 let script_id = ctx
                     .scripts
                     .iter()
                     .find(|(url, _)| url.contains("large-bundle.js"))
                     .map(|(_, id)| id.clone())
-                    .or_else(|| {
-                        ctx.scripts
-                            .values()
-                            .max_by_key(|id| id.len())
-                            .cloned()
-                    })
-                    .context("no Debugger.scriptParsed for large-bundle.js")?;
+                    .context("no Debugger.scriptParsed for large-bundle.js — is large.html loaded?")?;
                 Ok(json!({ "scriptId": script_id }))
             }));
-            s.push(Step::Settle(1000));
+            s.push(Step::Settle(2000));
             s
         }
 
-        // Genuine Target.* wrapping via provisional navigation + worker host.
+        // Genuine Target.* wrapping via navigation to the worker host.
+        // WebKitGTK has no Page.navigate; assign location instead.
         "target-multiplexed" => {
             let mut s = enable();
             s.push(Step::Call("Target.setPauseOnStart", || {
                 json!({ "pauseOnStart": true })
             }));
             s.push(Step::Call("Worker.enable", || json!({})));
-            s.push(Step::Call("Page.navigate", || {
-                json!({ "url": format!("{FIXTURE_ORIGIN}/worker-host.html") })
+            s.push(Step::Call("Runtime.evaluate", || {
+                json!({
+                    "expression": format!(
+                        "window.location.assign('{FIXTURE_ORIGIN}/worker-host.html'); 'navigating'"
+                    ),
+                    "returnByValue": true,
+                })
             }));
-            // Provisional navigation is the reliable Target.* path on WebKitGTK.
-            // Worker.workerCreated may also arrive during the settle window.
-            s.push(Step::Await("Target.targetCreated", 12_000));
-            s.push(Step::Settle(2000));
+            // WebKitGTK emits Worker.workerCreated for dedicated workers; a new
+            // Target.targetCreated is not guaranteed. Wait for the worker, then
+            // exercise Target.sendMessageToTarget with a JSON-string payload.
+            s.push(Step::Await("Worker.workerCreated", 12_000));
+            s.push(Step::Settle(1000));
             s.push(Step::CallCtx("Target.sendMessageToTarget", |ctx| {
                 let target_id = ctx
-                    .target_id
+                    .page_target_id
                     .as_ref()
-                    .context(
-                        "no Target.targetCreated targetId — cannot record Target.* wrapping",
-                    )?;
-                let inner = json!({ "id": 9001, "method": "Runtime.enable", "params": {} });
+                    .context("page target required for Target.sendMessageToTarget")?;
+                let inner = json!({
+                    "id": 9001,
+                    "method": "Runtime.evaluate",
+                    "params": { "expression": "1+1", "returnByValue": true },
+                });
                 Ok(json!({
                     "targetId": target_id,
                     "message": serde_json::to_string(&inner)?,
                 }))
             }));
             s.push(Step::Await("Target.dispatchMessageFromTarget", 8_000));
-            s.push(Step::CallCtx("Target.resume", |ctx| {
-                let target_id = ctx
-                    .target_id
-                    .as_ref()
-                    .context("no targetId for Target.resume")?;
-                Ok(json!({ "targetId": target_id }))
-            }));
-            // Optional: initialise a dedicated worker if one appeared.
             s.push(Step::CallCtx("Worker.initialized", |ctx| {
                 let id = ctx
                     .worker_id
                     .as_ref()
                     .context("no workerId")?;
                 Ok(json!({ "workerId": id }))
+            }));
+            s.push(Step::CallCtx("Worker.sendMessageToWorker", |ctx| {
+                let id = ctx
+                    .worker_id
+                    .as_ref()
+                    .context("no workerId")?;
+                let inner = json!({
+                    "id": 9002,
+                    "method": "Runtime.enable",
+                    "params": {},
+                });
+                Ok(json!({
+                    "workerId": id,
+                    "message": serde_json::to_string(&inner)?,
+                }))
             }));
             s.push(Step::Settle(1500));
             s
@@ -702,26 +746,43 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     let mut next_id: u64 = 1;
     let mut ctx = Ctx::default();
 
+    // WebKitGTK 2.52 multiplexes every non-Target domain through the page
+    // target. Wait for Target.targetCreated before issuing domain commands.
+    drain(
+        &mut client,
+        &mut trace,
+        &mut ctx,
+        started,
+        None,
+        Some(&["Target.targetCreated"]),
+        8_000,
+    )
+    .await?;
+    // Keep draining briefly so both frame + page creations land.
+    drain(&mut client, &mut trace, &mut ctx, started, None, None, 500).await?;
+    if ctx.page_target_id.is_none() {
+        bail!(
+            "no Target.targetCreated with type=page after Setup.\n\
+             WebKitGTK 2.52 requires page-target multiplexing for domain commands."
+        );
+    }
+    println!(
+        "page target {} (multiplex tunnel)",
+        ctx.page_target_id.as_deref().unwrap_or("?")
+    );
+
     for step in steps {
         match step {
             Step::Call(method, params) => {
-                let id = next_id;
-                next_id += 1;
-                let frame = json!({ "id": id, "method": method, "params": params() });
-                send_frame(&mut client, &target, &frame).await?;
-                trace.push(TraceLine {
-                    t: started.elapsed().as_micros(),
-                    dir: "send",
-                    frame,
-                });
-                drain(
+                call_step(
                     &mut client,
+                    &target,
                     &mut trace,
                     &mut ctx,
+                    &mut next_id,
                     started,
-                    Some(id),
-                    None,
-                    5000,
+                    method,
+                    params(),
                 )
                 .await?;
             }
@@ -731,23 +792,16 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
                     println!("skipping Worker.initialized (no workerId observed)");
                     continue;
                 }
-                let id = next_id;
-                next_id += 1;
-                let frame = json!({ "id": id, "method": method, "params": params(&ctx)? });
-                send_frame(&mut client, &target, &frame).await?;
-                trace.push(TraceLine {
-                    t: started.elapsed().as_micros(),
-                    dir: "send",
-                    frame,
-                });
-                drain(
+                let params = params(&ctx)?;
+                call_step(
                     &mut client,
+                    &target,
                     &mut trace,
                     &mut ctx,
+                    &mut next_id,
                     started,
-                    Some(id),
-                    None,
-                    5000,
+                    method,
+                    params,
                 )
                 .await?;
             }
@@ -840,6 +894,51 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Issue one RWI command, wrapping non-`Target.*` methods for the page tunnel.
+async fn call_step(
+    client: &mut Client,
+    target: &Target,
+    trace: &mut Vec<TraceLine>,
+    ctx: &mut Ctx,
+    next_id: &mut u64,
+    started: Instant,
+    method: &str,
+    params: Value,
+) -> Result<()> {
+    let inner_id = *next_id;
+    *next_id += 1;
+    let inner = json!({ "id": inner_id, "method": method, "params": params });
+
+    let (frame, wait_inner_id) = if is_root_method(method) {
+        (inner, Some(inner_id))
+    } else {
+        let page = ctx
+            .page_target_id
+            .as_ref()
+            .context("page target id required for domain multiplexing")?;
+        let outer_id = *next_id;
+        *next_id += 1;
+        let outer = json!({
+            "id": outer_id,
+            "method": "Target.sendMessageToTarget",
+            "params": {
+                "targetId": page,
+                "message": serde_json::to_string(&inner)?,
+            }
+        });
+        // Wait for the *inner* reply id, which arrives inside dispatchMessageFromTarget.
+        (outer, Some(inner_id))
+    };
+
+    send_frame(client, target, &frame).await?;
+    trace.push(TraceLine {
+        t: started.elapsed().as_micros(),
+        dir: "send",
+        frame,
+    });
+    drain(client, trace, ctx, started, wait_inner_id, None, 8_000).await
 }
 
 /// Record the raw glib handshake (no RWI attach). Feeds T-001.
@@ -988,6 +1087,10 @@ async fn send_frame(client: &mut Client, target: &Target, frame: &Value) -> Resu
 }
 
 /// Read frames until a stop condition or the deadline.
+///
+/// `until_id` matches either a top-level reply id or the id inside a
+/// `Target.dispatchMessageFromTarget` payload (WebKitGTK page multiplexing).
+/// `until_events` matches either the outer method or the inner method.
 async fn drain(
     client: &mut Client,
     trace: &mut Vec<TraceLine>,
@@ -1021,13 +1124,14 @@ async fn drain(
         let frame: Value = serde_json::from_str(&message)
             .with_context(|| format!("debuggee sent a non-JSON frame: {message:.200}"))?;
 
-        let id = frame.get("id").and_then(Value::as_u64);
-        let method = frame
+        ingest(ctx, &frame);
+
+        let outer_id = frame.get("id").and_then(Value::as_u64);
+        let outer_method = frame
             .get("method")
             .and_then(Value::as_str)
             .map(str::to_owned);
-
-        ingest(ctx, &frame);
+        let (inner_id, inner_method) = unwrap_dispatch(&frame);
 
         trace.push(TraceLine {
             t: started.elapsed().as_micros(),
@@ -1035,19 +1139,58 @@ async fn drain(
             frame,
         });
 
-        if until_id.is_some() && id == until_id {
-            return Ok(());
-        }
-        if let (Some(want), Some(got)) = (until_events, method.as_deref())
-            && want.contains(&got)
+        if let Some(want) = until_id
+            && (outer_id == Some(want) || inner_id == Some(want))
         {
             return Ok(());
+        }
+        if let Some(want) = until_events {
+            let got_outer = outer_method.as_deref();
+            let got_inner = inner_method.as_deref();
+            if got_outer.is_some_and(|m| want.contains(&m))
+                || got_inner.is_some_and(|m| want.contains(&m))
+            {
+                return Ok(());
+            }
         }
     }
 }
 
+/// Peel `Target.dispatchMessageFromTarget` to the inner id/method, if present.
+fn unwrap_dispatch(frame: &Value) -> (Option<u64>, Option<String>) {
+    if frame.get("method").and_then(Value::as_str) != Some("Target.dispatchMessageFromTarget") {
+        return (None, None);
+    }
+    let Some(inner_text) = frame.pointer("/params/message").and_then(Value::as_str) else {
+        return (None, None);
+    };
+    let Ok(inner) = serde_json::from_str::<Value>(inner_text) else {
+        return (None, None);
+    };
+    (
+        inner.get("id").and_then(Value::as_u64),
+        inner
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    )
+}
+
 fn ingest(ctx: &mut Ctx, frame: &Value) {
-    if let Some(result) = frame.get("result") {
+    // Prefer the logical inner frame when WebKit wraps a reply/event.
+    let logical = if frame.get("method").and_then(Value::as_str)
+        == Some("Target.dispatchMessageFromTarget")
+    {
+        frame
+            .pointer("/params/message")
+            .and_then(Value::as_str)
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .unwrap_or_else(|| frame.clone())
+    } else {
+        frame.clone()
+    };
+
+    if let Some(result) = logical.get("result") {
         if let Some(origin) = result
             .pointer("/frameTree/frame/securityOrigin")
             .and_then(Value::as_str)
@@ -1064,14 +1207,13 @@ fn ingest(ctx: &mut Ctx, frame: &Value) {
         }
     }
 
-    let Some(method) = frame.get("method").and_then(Value::as_str) else {
+    let Some(method) = logical.get("method").and_then(Value::as_str) else {
         return;
     };
-    let params = frame.get("params").cloned().unwrap_or(Value::Null);
+    let params = logical.get("params").cloned().unwrap_or(Value::Null);
 
     match method {
         "Debugger.paused" => {
-            // Prefer the local scope's objectId on the top call frame.
             if let Some(oid) = params
                 .pointer("/callFrames/0/scopeChain/0/object/objectId")
                 .and_then(Value::as_str)
@@ -1088,11 +1230,29 @@ fn ingest(ctx: &mut Ctx, frame: &Value) {
             }
         }
         "Target.targetCreated" => {
-            if let Some(id) = params
+            let Some(id) = params
                 .pointer("/targetInfo/targetId")
                 .and_then(Value::as_str)
-            {
+            else {
+                return;
+            };
+            let ty = params
+                .pointer("/targetInfo/type")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if ty == "page" {
+                ctx.page_target_id = Some(id.to_owned());
+            } else {
+                // frame / worker / provisional — useful for target-multiplexed.
                 ctx.target_id = Some(id.to_owned());
+            }
+        }
+        "Target.didCommitProvisionalTarget" => {
+            if let Some(id) = params
+                .get("newTargetId")
+                .and_then(Value::as_str)
+            {
+                ctx.page_target_id = Some(id.to_owned());
             }
         }
         "Worker.workerCreated" => {

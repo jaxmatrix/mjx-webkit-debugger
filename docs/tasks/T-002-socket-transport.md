@@ -38,7 +38,8 @@ leaving the target marked as being inspected.
 
 ## Fixtures
 
-`fixtures/attach.jsonl` — the handshake and the `scriptParsed` flood.
+`fixtures/attach.jsonl` — the handshake and the `scriptParsed` flood. Until T-013 records it,
+transport tests use a local mock peer that speaks the same glib framing.
 
 ## Done criteria
 
@@ -55,6 +56,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Notes
 
-An outgoing frame becomes `SendMessageToBackend`; each `SendMessageToFrontend`'s `message` is a
-received frame. The `Transport` seam is one JSON string each way precisely so the envelope stops
-here — nothing above this crate learns the wire format.
+WebKitGTK/WPE speak GLib `SocketConnection` framing (see T-001 and `PROTOCOL-NOTES.md` trap 1) —
+not the PlayStation JSON dialect. An outgoing frame becomes `SendMessageToBackend`; each
+`SendMessageToFrontend`'s `message` is a received frame. The `Transport` seam is one JSON string
+each way precisely so the envelope stops here — nothing above this crate learns the wire format.

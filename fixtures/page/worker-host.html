@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mjx-webkit-debugger worker host</title>
+</head>
+<body>
+  <h1>Worker host</h1>
+  <p>Starts a dedicated worker so the target-multiplexed fixture can observe
+     <code>Target.*</code> wrapping (or <code>Worker.*</code> as a fallback signal).</p>
+  <script>
+    const worker = new Worker('worker.js');
+    worker.onmessage = (ev) => { console.log('worker message', ev.data); };
+    window.__fixtureWorker = worker;
+  </script>
+</body>
+</html>

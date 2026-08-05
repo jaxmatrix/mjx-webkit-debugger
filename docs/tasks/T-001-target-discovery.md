@@ -18,9 +18,12 @@ in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Goal
 
-Speak the inspector server's length-prefixed JSON protocol well enough to list what can be attached
-to. Done when `TcpInspectorServer::list()` returns every inspectable target from a running debuggee,
-and the framing survives a message split arbitrarily across reads.
+Speak the WebKitGTK inspector server's GLib `SocketConnection` protocol well enough to list what
+can be attached to. Done when `TcpInspectorServer::list()` returns every inspectable target from a
+running debuggee, and the framing survives a message split arbitrarily across reads.
+
+**Do not implement the PlayStation JSON dialect** (`RemoteInspectorSocketEndpoint`). Linux
+WebKitGTK/WPE speak GVariant bodies — see trap 1 in `PROTOCOL-NOTES.md`.
 
 ## Seam
 
@@ -40,7 +43,8 @@ and the framing survives a message split arbitrarily across reads.
 ## Fixtures
 
 `fixtures/socket-handshake.jsonl` — the raw socket exchange, recorded by T-013. Distinct from the
-protocol traces: this one pins the **envelope**, not the frames inside it.
+protocol traces: this one pins the **envelope**, not the frames inside it. Until it exists, framing
+tests use synthetic GVariant payloads.
 
 ## Done criteria
 
@@ -58,6 +62,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Notes
 
-Big-endian framing — see `docs/PROTOCOL-NOTES.md` trap 1. `BackendCommands` is tens of kilobytes
-and **always** arrives split; a parser that assumes one message per read passes every unit test and
-fails against a real debuggee.
+Framing is `[u32 BE size][u8 flags][name\0][GVariant body]` — see `docs/PROTOCOL-NOTES.md` trap 1.
+Handshake: `SetupInspectorClient (ay)` → `DidSetupInspectorClient` → `SetTargetList (ta(tsssb))`.
+`DidSetupInspectorClient` is tens of kilobytes when digests differ and **always** arrives split; a
+parser that assumes one message per read passes every unit test and fails against a real debuggee.

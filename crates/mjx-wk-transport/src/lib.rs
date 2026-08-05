@@ -74,8 +74,8 @@ pub trait Transport: Send + std::fmt::Debug {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransportOrigin {
     /// A WebKit inspector server over TCP, as enabled by
-    /// `WEBKIT_INSPECTOR_SERVER`. Speaks the length-prefixed JSON socket
-    /// protocol, not HTTP.
+    /// `WEBKIT_INSPECTOR_SERVER`. Speaks the GLib `SocketConnection`
+    /// protocol (GVariant bodies), not HTTP.
     TcpInspectorServer { address: String },
     /// A recorded trace replayed from disk.
     Replay { fixture: String },

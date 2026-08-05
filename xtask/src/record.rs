@@ -9,6 +9,7 @@
 //! # Usage
 //!
 //! ```sh
+//! python3 -m http.server 8731 --directory fixtures/page &
 //! WEBKIT_INSPECTOR_SERVER=127.0.0.1:2999 \
 //!   /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser \
 //!   --enable-developer-extras=true http://127.0.0.1:8731/index.html &
@@ -33,8 +34,15 @@
 //! the debuggee's `InspectorBackendCommands.js` as a bytestring. The server
 //! replies with `DidSetupInspectorClient`, then pushes `SetTargetList` as
 //! `(ta(tsssb))`. Proven against WebKitGTK 2.52.3; see
-//! `scripts/inspector-handshake.py` and `docs/PROTOCOL-NOTES.md` trap 1.
+//! `docs/PROTOCOL-NOTES.md` trap 1.
+//!
+//! # Envelope traces
+//!
+//! `socket-handshake` records the glib `SocketConnection` exchange itself
+//! (message name + GVariant body hex), not inspector-protocol frames. That
+//! fixture feeds T-001; RWI scenarios feed `ReplayTransport`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -55,6 +63,8 @@ const BYTE_ORDER_LITTLE_ENDIAN: u8 = 1 << 0;
 
 const BACKEND_COMMANDS_PATH: &str =
     "/org/webkit/inspector/UserInterface/Protocol/InspectorBackendCommands.js";
+
+const FIXTURE_ORIGIN: &str = "http://127.0.0.1:8731";
 
 #[derive(Debug, Args)]
 pub struct RecordArgs {
@@ -87,12 +97,36 @@ pub struct RecordArgs {
     /// computing the handshake hash. Defaults to the system WebKitGTK 4.1.
     #[arg(long)]
     pub webkit_library: Option<PathBuf>,
+
+    /// Write the discovered target list to `fixtures/targets-page.json`.
+    ///
+    /// There is no server-served inspectable-targets HTML page on WebKitGTK
+    /// (see PROTOCOL-NOTES trap 1). This dumps the `SetTargetList` rows the
+    /// handshake returned, so a recording session can still capture "what was
+    /// attached to" beside the RWI trace.
+    #[arg(long)]
+    pub save_targets_page: bool,
+}
+
+/// Values harvested from replies/events so later steps can be dynamic.
+#[derive(Debug, Default)]
+struct Ctx {
+    security_origin: Option<String>,
+    document_node_id: Option<i64>,
+    element_node_id: Option<i64>,
+    pause_object_id: Option<String>,
+    /// URL substring → scriptId, from `Debugger.scriptParsed`.
+    scripts: HashMap<String, String>,
+    target_id: Option<String>,
+    worker_id: Option<String>,
 }
 
 /// One step of a scripted scenario.
 enum Step {
     /// Send a command and wait for its reply.
     Call(&'static str, fn() -> Value),
+    /// Send a command whose params depend on earlier replies/events.
+    CallCtx(&'static str, fn(&Ctx) -> Result<Value>),
     /// Wait for events to arrive.
     Settle(u64),
     /// Wait until an event with this method arrives, or the timeout elapses.
@@ -111,6 +145,9 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
     };
 
     Ok(match name {
+        // Envelope-only — handled by `record_socket_handshake`, not these steps.
+        "socket-handshake" => Vec::new(),
+
         // The handshake plus the script/resource inventory: what the source
         // browser needs and nothing more.
         "attach" => {
@@ -120,8 +157,7 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
             s
         }
 
-        // Set a breakpoint by URL, reload so it resolves and hits, then walk
-        // the pause.
+        // setBreakpointByUrl → reload → paused → getProperties → resume
         "breakpoint-hit" => {
             let mut s = enable();
             s.push(Step::Call(
@@ -133,7 +169,20 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
                 // breakpoint hits without anyone clicking anything.
                 json!({ "lineNumber": 3, "urlRegex": ".*app\\.js" })
             }));
-            s.push(Step::Await("Debugger.paused", 8000));
+            s.push(Step::Call("Page.reload", || json!({})));
+            s.push(Step::Await("Debugger.paused", 12_000));
+            s.push(Step::CallCtx("Runtime.getProperties", |ctx| {
+                let object_id = ctx
+                    .pause_object_id
+                    .as_ref()
+                    .context("Debugger.paused did not yield an objectId for getProperties")?;
+                Ok(json!({
+                    "objectId": object_id,
+                    "ownProperties": true,
+                    "fetchStart": 0,
+                    "fetchCount": 100,
+                }))
+            }));
             s.push(Step::Call("Debugger.resume", || json!({})));
             s.push(Step::Settle(1000));
             s
@@ -143,25 +192,71 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
             let mut s = enable();
             s.push(Step::Call("Network.enable", || json!({})));
             s.push(Step::Call("Page.reload", || json!({})));
-            s.push(Step::Settle(5000));
+            s.push(Step::Settle(6000));
             s
         }
 
+        // getDocument → getMatchedStylesForNode → getComputedStyleForNode
         "dom-css" => {
             let mut s = enable();
             s.push(Step::Call("DOM.enable", || json!({})));
             s.push(Step::Call("CSS.enable", || json!({})));
             s.push(Step::Call("DOM.getDocument", || json!({})));
-            s.push(Step::Settle(2000));
+            s.push(Step::CallCtx("CSS.getMatchedStylesForNode", |ctx| {
+                let node_id = ctx
+                    .element_node_id
+                    .or(ctx.document_node_id)
+                    .context("DOM.getDocument did not yield a nodeId")?;
+                Ok(json!({ "nodeId": node_id }))
+            }));
+            s.push(Step::CallCtx("CSS.getComputedStyleForNode", |ctx| {
+                let node_id = ctx
+                    .element_node_id
+                    .or(ctx.document_node_id)
+                    .context("DOM.getDocument did not yield a nodeId")?;
+                Ok(json!({ "nodeId": node_id }))
+            }));
+            s.push(Step::Settle(1000));
             s
         }
 
+        // DOMStorage + IndexedDB + cookies
         "storage" => {
             let mut s = enable();
             s.push(Step::Call("DOMStorage.enable", || json!({})));
             s.push(Step::Call("IndexedDB.enable", || json!({})));
+            s.push(Step::Call("Page.getResourceTree", || json!({})));
+            s.push(Step::CallCtx("DOMStorage.getDOMStorageItems", |ctx| {
+                let origin = ctx
+                    .security_origin
+                    .clone()
+                    .unwrap_or_else(|| FIXTURE_ORIGIN.to_owned());
+                Ok(json!({
+                    "storageId": {
+                        "securityOrigin": origin,
+                        "isLocalStorage": true,
+                    }
+                }))
+            }));
+            s.push(Step::CallCtx("IndexedDB.requestDatabaseNames", |ctx| {
+                let origin = ctx
+                    .security_origin
+                    .clone()
+                    .unwrap_or_else(|| FIXTURE_ORIGIN.to_owned());
+                Ok(json!({ "securityOrigin": origin }))
+            }));
+            s.push(Step::CallCtx("IndexedDB.requestDatabase", |ctx| {
+                let origin = ctx
+                    .security_origin
+                    .clone()
+                    .unwrap_or_else(|| FIXTURE_ORIGIN.to_owned());
+                Ok(json!({
+                    "securityOrigin": origin,
+                    "databaseName": "fixture-db",
+                }))
+            }));
             s.push(Step::Call("Page.getCookies", || json!({})));
-            s.push(Step::Settle(2000));
+            s.push(Step::Settle(1500));
             s
         }
 
@@ -179,14 +274,89 @@ fn scenario(name: &str) -> Result<Vec<Step>> {
             s
         }
 
+        // Navigate to the multi-MB script host, then getScriptSource.
+        "large-bundle" => {
+            let mut s = enable();
+            s.push(Step::Call("Page.navigate", || {
+                json!({ "url": format!("{FIXTURE_ORIGIN}/large.html") })
+            }));
+            s.push(Step::Await("Debugger.scriptParsed", 10_000));
+            s.push(Step::Settle(2000));
+            s.push(Step::CallCtx("Debugger.getScriptSource", |ctx| {
+                let script_id = ctx
+                    .scripts
+                    .iter()
+                    .find(|(url, _)| url.contains("large-bundle.js"))
+                    .map(|(_, id)| id.clone())
+                    .or_else(|| {
+                        ctx.scripts
+                            .values()
+                            .max_by_key(|id| id.len())
+                            .cloned()
+                    })
+                    .context("no Debugger.scriptParsed for large-bundle.js")?;
+                Ok(json!({ "scriptId": script_id }))
+            }));
+            s.push(Step::Settle(1000));
+            s
+        }
+
+        // Genuine Target.* wrapping via provisional navigation + worker host.
+        "target-multiplexed" => {
+            let mut s = enable();
+            s.push(Step::Call("Target.setPauseOnStart", || {
+                json!({ "pauseOnStart": true })
+            }));
+            s.push(Step::Call("Worker.enable", || json!({})));
+            s.push(Step::Call("Page.navigate", || {
+                json!({ "url": format!("{FIXTURE_ORIGIN}/worker-host.html") })
+            }));
+            // Provisional navigation is the reliable Target.* path on WebKitGTK.
+            // Worker.workerCreated may also arrive during the settle window.
+            s.push(Step::Await("Target.targetCreated", 12_000));
+            s.push(Step::Settle(2000));
+            s.push(Step::CallCtx("Target.sendMessageToTarget", |ctx| {
+                let target_id = ctx
+                    .target_id
+                    .as_ref()
+                    .context(
+                        "no Target.targetCreated targetId — cannot record Target.* wrapping",
+                    )?;
+                let inner = json!({ "id": 9001, "method": "Runtime.enable", "params": {} });
+                Ok(json!({
+                    "targetId": target_id,
+                    "message": serde_json::to_string(&inner)?,
+                }))
+            }));
+            s.push(Step::Await("Target.dispatchMessageFromTarget", 8_000));
+            s.push(Step::CallCtx("Target.resume", |ctx| {
+                let target_id = ctx
+                    .target_id
+                    .as_ref()
+                    .context("no targetId for Target.resume")?;
+                Ok(json!({ "targetId": target_id }))
+            }));
+            // Optional: initialise a dedicated worker if one appeared.
+            s.push(Step::CallCtx("Worker.initialized", |ctx| {
+                let id = ctx
+                    .worker_id
+                    .as_ref()
+                    .context("no workerId")?;
+                Ok(json!({ "workerId": id }))
+            }));
+            s.push(Step::Settle(1500));
+            s
+        }
+
         other => bail!(
-            "unknown scenario `{other}`. Known: attach, breakpoint-hit, network-load, \
-             dom-css, storage, timeline-record"
+            "unknown scenario `{other}`. Known: socket-handshake, attach, \
+             breakpoint-hit, network-load, dom-css, storage, timeline-record, \
+             large-bundle, target-multiplexed"
         ),
     })
 }
 
-/// One line of a trace. Records the *inspector protocol* frames, not the socket
+/// One line of an RWI trace. Records inspector-protocol frames, not the socket
 /// envelope — the envelope is the transport's business and a fixture must stay
 /// valid if it ever changes.
 #[derive(Serialize)]
@@ -196,6 +366,20 @@ struct TraceLine {
     t: u128,
     dir: &'static str,
     frame: Value,
+}
+
+/// One line of a glib envelope trace (`socket-handshake.jsonl`).
+#[derive(Serialize)]
+struct EnvelopeLine {
+    t: u128,
+    dir: &'static str,
+    name: String,
+    /// GVariant type string, when the message carries a body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<&'static str>,
+    /// Raw GVariant body bytes, hex-encoded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_hex: Option<String>,
 }
 
 /// An inspectable target, from `SetTargetList`.
@@ -471,6 +655,10 @@ pub fn run(root: &Path, args: RecordArgs) -> Result<()> {
 }
 
 async fn record(root: &Path, args: RecordArgs) -> Result<()> {
+    if args.scenario == "socket-handshake" {
+        return record_socket_handshake(root, args).await;
+    }
+
     let steps = scenario(&args.scenario)?;
     let library = args
         .webkit_library
@@ -489,6 +677,9 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     }
     for (i, t) in targets.iter().enumerate() {
         println!("[{i}] {} — {} ({})", t.name, t.url, t.kind);
+    }
+    if args.save_targets_page {
+        write_targets_page(root, &targets)?;
     }
     if args.list_only {
         return Ok(());
@@ -509,6 +700,7 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     let started = Instant::now();
     let mut trace: Vec<TraceLine> = Vec::new();
     let mut next_id: u64 = 1;
+    let mut ctx = Ctx::default();
 
     for step in steps {
         match step {
@@ -522,15 +714,70 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
                     dir: "send",
                     frame,
                 });
-                drain(&mut client, &mut trace, started, Some(id), None, 5000).await?;
+                drain(
+                    &mut client,
+                    &mut trace,
+                    &mut ctx,
+                    started,
+                    Some(id),
+                    None,
+                    5000,
+                )
+                .await?;
             }
-            Step::Settle(ms) => drain(&mut client, &mut trace, started, None, None, ms).await?,
+            Step::CallCtx(method, params) => {
+                // Skip optional Worker.initialized when no worker appeared.
+                if method == "Worker.initialized" && ctx.worker_id.is_none() {
+                    println!("skipping Worker.initialized (no workerId observed)");
+                    continue;
+                }
+                let id = next_id;
+                next_id += 1;
+                let frame = json!({ "id": id, "method": method, "params": params(&ctx)? });
+                send_frame(&mut client, &target, &frame).await?;
+                trace.push(TraceLine {
+                    t: started.elapsed().as_micros(),
+                    dir: "send",
+                    frame,
+                });
+                drain(
+                    &mut client,
+                    &mut trace,
+                    &mut ctx,
+                    started,
+                    Some(id),
+                    None,
+                    5000,
+                )
+                .await?;
+            }
+            Step::Settle(ms) => {
+                drain(&mut client, &mut trace, &mut ctx, started, None, None, ms).await?;
+            }
             Step::Await(method, ms) => {
-                drain(&mut client, &mut trace, started, None, Some(method), ms).await?;
+                drain(
+                    &mut client,
+                    &mut trace,
+                    &mut ctx,
+                    started,
+                    None,
+                    Some(&[method]),
+                    ms,
+                )
+                .await?;
             }
         }
     }
-    drain(&mut client, &mut trace, started, None, None, args.settle_ms).await?;
+    drain(
+        &mut client,
+        &mut trace,
+        &mut ctx,
+        started,
+        None,
+        None,
+        args.settle_ms,
+    )
+    .await?;
 
     let close = (target.connection_id, target.target_id).to_variant();
     client
@@ -541,15 +788,7 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     let out = args
         .out
         .unwrap_or_else(|| root.join(format!("fixtures/{}.jsonl", args.scenario)));
-    if let Some(parent) = out.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let body: String = trace
-        .iter()
-        .map(|l| serde_json::to_string(l).map(|s| s + "\n"))
-        .collect::<Result<Vec<_>, _>>()?
-        .concat();
-    std::fs::write(&out, body)?;
+    write_jsonl(&out, &trace)?;
 
     let sent = trace.iter().filter(|l| l.dir == "send").count();
     println!(
@@ -558,6 +797,179 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
         trace.len(),
         trace.len() - sent
     );
+
+    if args.scenario == "target-multiplexed" {
+        let has_send = trace.iter().any(|l| {
+            l.dir == "send"
+                && l.frame.get("method").and_then(Value::as_str)
+                    == Some("Target.sendMessageToTarget")
+        });
+        let has_dispatch = trace.iter().any(|l| {
+            l.dir == "recv"
+                && l.frame.get("method").and_then(Value::as_str)
+                    == Some("Target.dispatchMessageFromTarget")
+        });
+        if !has_send || !has_dispatch {
+            bail!(
+                "target-multiplexed trace is missing genuine Target.* wrapping \
+                 (send={has_send}, dispatch={has_dispatch}). Refusing to write a \
+                 fabricated multiplex fixture."
+            );
+        }
+        // Confirm the inner message travelled as a JSON *string*.
+        let ok_string = trace.iter().any(|l| {
+            l.frame.get("method").and_then(Value::as_str) == Some("Target.sendMessageToTarget")
+                && l.frame
+                    .pointer("/params/message")
+                    .and_then(Value::as_str)
+                    .is_some()
+        }) && trace.iter().any(|l| {
+            l.frame.get("method").and_then(Value::as_str)
+                == Some("Target.dispatchMessageFromTarget")
+                && l.frame
+                    .pointer("/params/message")
+                    .and_then(Value::as_str)
+                    .is_some()
+        });
+        if !ok_string {
+            bail!(
+                "Target.* frames present but `message` was not a JSON string — \
+                 that is the trap the dialect exists to catch"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Record the raw glib handshake (no RWI attach). Feeds T-001.
+async fn record_socket_handshake(root: &Path, args: RecordArgs) -> Result<()> {
+    let library = args
+        .webkit_library
+        .clone()
+        .unwrap_or_else(default_webkit_library);
+    let mut client = Client::connect(&args.address).await?;
+    let started = Instant::now();
+    let mut trace: Vec<EnvelopeLine> = Vec::new();
+
+    let digest = backend_commands_hash(&library)?;
+    let type_ay = VariantTy::new("(ay)")
+        .map_err(|e| anyhow::anyhow!("`(ay)` is not a valid GVariant type: {e}"))?;
+    let payload = bytestring_tuple_payload(&digest);
+    let params = Variant::from_data_with_type(&payload, type_ay);
+
+    client
+        .send_message("SetupInspectorClient", Some(&params))
+        .await?;
+    trace.push(EnvelopeLine {
+        t: started.elapsed().as_micros(),
+        dir: "send",
+        name: "SetupInspectorClient".into(),
+        r#type: Some("(ay)"),
+        body_hex: Some(hex::encode(&payload)),
+    });
+
+    let mut targets = Vec::new();
+    let mut saw_setup = false;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        let Some((name, variant)) = client.recv_message(Duration::from_secs(3)).await? else {
+            continue;
+        };
+        let type_str = message_param_type(&name)?;
+        let body_hex = match type_str {
+            None => None,
+            Some(_) => Some(hex::encode(variant.data())),
+        };
+        trace.push(EnvelopeLine {
+            t: started.elapsed().as_micros(),
+            dir: "recv",
+            name: name.clone(),
+            r#type: type_str,
+            body_hex,
+        });
+        match name.as_str() {
+            "DidSetupInspectorClient" => saw_setup = true,
+            "SetTargetList" => {
+                let parsed = parse_target_list(&variant)?;
+                if !parsed.is_empty() {
+                    targets = parsed;
+                    break;
+                }
+                targets = parsed;
+            }
+            _ => {}
+        }
+    }
+
+    if !saw_setup {
+        bail!("socket-handshake: no DidSetupInspectorClient within 15s");
+    }
+    if targets.is_empty() {
+        bail!(
+            "socket-handshake: handshake completed but SetTargetList stayed empty.\n\
+             Pass `--enable-developer-extras=true` and load a page first."
+        );
+    }
+    for (i, t) in targets.iter().enumerate() {
+        println!("[{i}] {} — {} ({})", t.name, t.url, t.kind);
+    }
+    if args.save_targets_page {
+        write_targets_page(root, &targets)?;
+    }
+    if args.list_only {
+        return Ok(());
+    }
+
+    let out = args
+        .out
+        .unwrap_or_else(|| root.join("fixtures/socket-handshake.jsonl"));
+    write_jsonl(&out, &trace)?;
+    println!(
+        "wrote {} ({} envelope messages)",
+        out.display(),
+        trace.len()
+    );
+    Ok(())
+}
+
+fn write_targets_page(root: &Path, targets: &[Target]) -> Result<()> {
+    let path = root.join("fixtures/targets-page.json");
+    let rows: Vec<Value> = targets
+        .iter()
+        .map(|t| {
+            json!({
+                "connectionId": t.connection_id,
+                "targetId": t.target_id,
+                "name": t.name,
+                "url": t.url,
+                "type": t.kind,
+            })
+        })
+        .collect();
+    let body = serde_json::to_string_pretty(&json!({
+        "note": "WebKitGTK does not serve an inspectable-targets HTML page. \
+                 This file is the SetTargetList dump from a live recording.",
+        "targets": rows,
+    }))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, body)?;
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
+fn write_jsonl<T: Serialize>(path: &Path, lines: &[T]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body: String = lines
+        .iter()
+        .map(|l| serde_json::to_string(l).map(|s| s + "\n"))
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    std::fs::write(path, body)?;
     Ok(())
 }
 
@@ -579,9 +991,10 @@ async fn send_frame(client: &mut Client, target: &Target, frame: &Value) -> Resu
 async fn drain(
     client: &mut Client,
     trace: &mut Vec<TraceLine>,
+    ctx: &mut Ctx,
     started: Instant,
     until_id: Option<u64>,
-    until_event: Option<&str>,
+    until_events: Option<&[&str]>,
     timeout_ms: u64,
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -614,6 +1027,8 @@ async fn drain(
             .and_then(Value::as_str)
             .map(str::to_owned);
 
+        ingest(ctx, &frame);
+
         trace.push(TraceLine {
             t: started.elapsed().as_micros(),
             dir: "recv",
@@ -623,12 +1038,86 @@ async fn drain(
         if until_id.is_some() && id == until_id {
             return Ok(());
         }
-        if let (Some(want), Some(got)) = (until_event, method.as_deref())
-            && want == got
+        if let (Some(want), Some(got)) = (until_events, method.as_deref())
+            && want.contains(&got)
         {
             return Ok(());
         }
     }
+}
+
+fn ingest(ctx: &mut Ctx, frame: &Value) {
+    if let Some(result) = frame.get("result") {
+        if let Some(origin) = result
+            .pointer("/frameTree/frame/securityOrigin")
+            .and_then(Value::as_str)
+        {
+            ctx.security_origin = Some(origin.to_owned());
+        }
+        if let Some(root) = result.get("root") {
+            if let Some(id) = root.get("nodeId").and_then(Value::as_i64) {
+                ctx.document_node_id = Some(id);
+            }
+            if let Some(el) = find_element_node(root) {
+                ctx.element_node_id = Some(el);
+            }
+        }
+    }
+
+    let Some(method) = frame.get("method").and_then(Value::as_str) else {
+        return;
+    };
+    let params = frame.get("params").cloned().unwrap_or(Value::Null);
+
+    match method {
+        "Debugger.paused" => {
+            // Prefer the local scope's objectId on the top call frame.
+            if let Some(oid) = params
+                .pointer("/callFrames/0/scopeChain/0/object/objectId")
+                .and_then(Value::as_str)
+            {
+                ctx.pause_object_id = Some(oid.to_owned());
+            }
+        }
+        "Debugger.scriptParsed" => {
+            if let (Some(url), Some(id)) = (
+                params.get("url").and_then(Value::as_str),
+                params.get("scriptId").and_then(Value::as_str),
+            ) {
+                ctx.scripts.insert(url.to_owned(), id.to_owned());
+            }
+        }
+        "Target.targetCreated" => {
+            if let Some(id) = params
+                .pointer("/targetInfo/targetId")
+                .and_then(Value::as_str)
+            {
+                ctx.target_id = Some(id.to_owned());
+            }
+        }
+        "Worker.workerCreated" => {
+            if let Some(id) = params.get("workerId").and_then(Value::as_str) {
+                ctx.worker_id = Some(id.to_owned());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn find_element_node(node: &Value) -> Option<i64> {
+    let node_type = node.get("nodeType").and_then(Value::as_i64)?;
+    // ELEMENT_NODE == 1. Prefer a real element over the document node.
+    if node_type == 1
+        && let Some(id) = node.get("nodeId").and_then(Value::as_i64)
+    {
+        return Some(id);
+    }
+    for child in node.get("children").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(id) = find_element_node(child) {
+            return Some(id);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -639,7 +1128,46 @@ mod tests {
     fn unknown_scenarios_are_rejected_by_name() {
         assert!(scenario("attach").is_ok());
         assert!(scenario("breakpoint-hit").is_ok());
+        assert!(scenario("large-bundle").is_ok());
+        assert!(scenario("target-multiplexed").is_ok());
+        assert!(scenario("socket-handshake").is_ok());
         assert!(scenario("nope").is_err());
+    }
+
+    #[test]
+    fn pin_table_scenarios_include_required_commands() {
+        let names = |s: &str| -> Vec<&'static str> {
+            scenario(s)
+                .unwrap()
+                .into_iter()
+                .filter_map(|step| match step {
+                    Step::Call(m, _) | Step::CallCtx(m, _) => Some(m),
+                    _ => None,
+                })
+                .collect()
+        };
+        let bp = names("breakpoint-hit");
+        assert!(bp.contains(&"Debugger.setBreakpointByUrl"));
+        assert!(bp.contains(&"Page.reload"));
+        assert!(bp.contains(&"Runtime.getProperties"));
+        assert!(bp.contains(&"Debugger.resume"));
+
+        let dom = names("dom-css");
+        assert!(dom.contains(&"DOM.getDocument"));
+        assert!(dom.contains(&"CSS.getMatchedStylesForNode"));
+        assert!(dom.contains(&"CSS.getComputedStyleForNode"));
+
+        let storage = names("storage");
+        assert!(storage.contains(&"DOMStorage.getDOMStorageItems"));
+        assert!(storage.contains(&"IndexedDB.requestDatabaseNames"));
+        assert!(storage.contains(&"Page.getCookies"));
+
+        let large = names("large-bundle");
+        assert!(large.contains(&"Debugger.getScriptSource"));
+
+        let mux = names("target-multiplexed");
+        assert!(mux.contains(&"Target.sendMessageToTarget"));
+        assert!(mux.contains(&"Target.setPauseOnStart"));
     }
 
     #[test]
@@ -722,5 +1250,17 @@ mod tests {
         assert_eq!(targets[0].kind, "WebPage");
         assert_eq!(targets[0].name, "mjx-webkit-debugger fixture page");
         assert_eq!(targets[0].url, "http://127.0.0.1:8731/index.html");
+    }
+
+    #[test]
+    fn find_element_walks_children() {
+        let doc = json!({
+            "nodeId": 1,
+            "nodeType": 9,
+            "children": [
+                { "nodeId": 2, "nodeType": 1, "nodeName": "HTML" }
+            ]
+        });
+        assert_eq!(find_element_node(&doc), Some(2));
     }
 }

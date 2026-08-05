@@ -46,17 +46,17 @@ WebKit, and Bun.
 WEBKIT_INSPECTOR_SERVER=127.0.0.1:2999 ./your-app
 ```
 
-**Not HTTP and not a WebSocket** — see `PROTOCOL-NOTES.md` trap 1. One socket speaking
-length-prefixed JSON carries both the target list and every target's frames, multiplexed by
+**Not HTTP and not a WebSocket** — see `PROTOCOL-NOTES.md` trap 1. On WebKitGTK/WPE the socket
+speaks GLib `SocketConnection` (GVariant bodies): `SetupInspectorClient` → `DidSetupInspectorClient`
+→ `SetTargetList`, then `Setup` / `SendMessageToBackend` / `SendMessageToFrontend` multiplexing by
 `connectionID`/`targetID`.
 
 The debuggee must have developer extras enabled (`--enable-developer-extras=true` for MiniBrowser,
 `webkit_settings_set_enable_developer_extras()` for an application), or the server listens and
 never registers a target.
 
-**Status: the handshake is unfinished.** `SetupInspectorClient` with correct framing draws no
-reply from MiniBrowser 2.52.3. Tracked as `docs/tasks/T-000-inspector-handshake.md`, which blocks
-T-001, T-002, and live fixture capture.
+**Status: handshake complete** (T-000). `cargo run -p xtask -- record --list-only` lists targets
+against MiniBrowser 2.52.3. T-001 still has to teach `mjx-wk-transport` the same glib framing.
 
 ## `ReplayTransport` — Phase 1
 

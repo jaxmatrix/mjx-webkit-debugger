@@ -49,52 +49,74 @@ The *"Inspectable targets"* HTML page that appears in WebKit's binary strings is
 received over the socket. It is never served to anyone. (An earlier draft of this project's plan
 assumed otherwise, on the strength of those strings; it was wrong.)
 
-What listens is a **length-prefixed JSON socket protocol**
-(`RemoteInspectorSocketEndpoint`). Each message is a 4-byte **big-endian** length followed by that
-many bytes of JSON — `RemoteInspectorMessageParser.cpp` uses `htonl`:
+#### WebKitGTK / WPE speak GLib `SocketConnection`, not JSON
+
+This is the trap that blocked the handshake for a while. The JSON length-prefixed protocol in
+`Source/WebKit/UIProcess/Inspector/socket/RemoteInspectorClient.cpp` is real — PlayStation and
+related ports use it — but **it is not what `WEBKIT_INSPECTOR_SERVER` speaks on GTK/WPE**.
+
+On WebKitGTK the listener is `Source/JavaScriptCore/inspector/remote/glib/RemoteInspectorServer.cpp`.
+Framing is WTF `SocketConnection` (`Source/WTF/wtf/glib/SocketConnection.cpp`):
 
 ```text
-+--------+---------------------------+
-|  size  |          payload          | (next message)
-| 4 bytes|       `size` bytes        |
-+--------+---------------------------+
++--------+-------+------------------+---------------------------+
+|  size  | flags | name\0           | GVariant body             |
+| 4 bytes| 1 byte| NUL-terminated   | `size - len(name) - 1` B  |
+| (BE)   |       |                  |                           |
++--------+-------+------------------+---------------------------+
 ```
 
-Little-endian is not merely wrong, it is *quietly* wrong: the server reads an enormous length,
-rejects it as invalid, and closes without a word.
+`size` is the body length (name + NUL + GVariant), **big-endian** (`htonl`). `flags` bit 0 is
+`ByteOrderLittleEndian`; Linux WebKitGTK always sets it. Little-endian *size* is still quietly
+wrong: the server reads an enormous length and closes.
 
-Client → server, from `RemoteInspectorClient.cpp` at the pinned ref:
+The GTK frontend client is
+`Source/WebKit/UIProcess/Inspector/glib/RemoteInspectorClient.cpp`. Handshake:
+
+1. Client → `SetupInspectorClient` with GVariant `(ay)` — a bytestring that is the **SHA-1 hex
+   digest** of the client's `InspectorBackendCommands.js`.
+2. Server → `DidSetupInspectorClient` with `(ay)` — the backend-commands script as a bytestring
+   when the digests differ, or empty when they match.
+3. Server asks every connected remote inspector for its listing, then → `SetTargetList` with
+   `(ta(tsssb))` — `connectionID` plus an array of
+   `(targetID, type, name, url, hasLocalDebugger)`.
+   `type` is `WebPage` / `JavaScript` / `ServiceWorker` (and similar). An empty list can arrive
+   first; a non-empty one follows once the web process has registered.
+
+After that:
+
+| Direction | Message | Parameters |
+|---|---|---|
+| Client → server | `Setup` | `(tt)` connectionID, targetID |
+| Client → server | `SendMessageToBackend` | `(tts)` connectionID, targetID, frame JSON |
+| Client → server | `FrontendDidClose` | `(tt)` |
+| Server → client | `SendMessageToFrontend` | `(tts)` connectionID, targetID, frame JSON |
+
+The inspector-protocol frame still travels as a **string** inside those GVariants, which is why
+the `Transport` seam — one JSON string in each direction — sits exactly where it does. Proven on
+WebKitGTK 2.52.3 with MiniBrowser; reproduction in `scripts/inspector-handshake.py`; recorder in
+`xtask` `record --list-only`.
+
+#### Still required of the debuggee
+
+- **Developer extras must be on.** MiniBrowser needs `--enable-developer-extras=true`; an
+  application needs `webkit_settings_set_enable_developer_extras()`. Without it the server
+  listens, the handshake completes, and `SetTargetList` stays empty.
+- **A page must exist.** The web process connects to the inspector server and pushes listings;
+  before that, empty `SetTargetList` messages are normal.
+
+#### Do not confuse with the PlayStation JSON dialect
+
+That dialect looks like:
 
 ```json
 {"event": "SetupInspectorClient"}
-{"event": "Setup",                 "connectionID": 1, "targetID": 2}
-{"event": "SendMessageToBackend",  "connectionID": 1, "targetID": 2, "message": "…"}
-{"event": "FrontendDidClose",      "connectionID": 1, "targetID": 2}
+{"event": "SetTargetList", "connectionID": 1, "message": "[…]"}
 ```
 
-Server → client:
-
-```json
-{"event": "BackendCommands",       "backendCommands": "…"}
-{"event": "SetTargetList",         "connectionID": 1, "targetList": [
-   {"targetID": 2, "name": "…", "url": "…", "type": "web-page"}]}
-{"event": "SendMessageToFrontend", "connectionID": 1, "targetID": 2, "message": "…"}
-```
-
-`message` carries the inspector protocol frame **as a string**, which is why the `Transport` seam —
-one JSON string in each direction — sits exactly where it does.
-
-Two further facts, both established the hard way:
-
-- **The debuggee must be started with developer extras enabled.** MiniBrowser needs
-  `--enable-developer-extras=true`; an application needs
-  `webkit_settings_set_enable_developer_extras()`. Without it the server listens and no target is
-  ever registered.
-- **The handshake is not yet complete.** Sending `SetupInspectorClient` with correct framing to a
-  developer-extras-enabled MiniBrowser 2.52.3 produces **no reply**, though the socket stays open.
-  Something further is needed before the server emits `SetTargetList`. This is unresolved and is
-  `docs/tasks/T-000-inspector-handshake.md`; it blocks live fixture capture. It is recorded as
-  unknown rather than guessed at, because a plausible-looking wrong handshake is worse than none.
+Sending it at WebKitGTK produces **no reply** (the socket stays open). That is how this trap
+presented: correct-looking JSON on a server that was waiting for a GVariant `SetupInspectorClient`.
+T-001's transport work must implement the glib framing above for Linux.
 
 ### 2. `Target.*` wraps frames as JSON *strings*
 

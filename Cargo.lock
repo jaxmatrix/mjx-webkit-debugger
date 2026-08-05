@@ -5156,6 +5156,7 @@ dependencies = [
  "glib",
  "heck",
  "hex",
+ "mjx-wk-transport",
  "serde",
  "serde_json",
  "sha1 0.10.7",

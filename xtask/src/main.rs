@@ -49,6 +49,9 @@ enum Command {
     /// WebKit program. This is that rule, enforced.
     VerifyNoWebview,
 
+    /// Replay every RWI fixture through `ReplayTransport` (no unmatched send).
+    VerifyFixtures,
+
     /// Record a protocol trace from a live debuggee into `fixtures/`.
     Record(record::RecordArgs),
 }
@@ -68,6 +71,7 @@ fn main() -> Result<()> {
             allow_drift,
         } => verify::protocol(&root, library.as_deref(), allow_drift),
         Command::VerifyNoWebview => verify::no_webview(&root),
+        Command::VerifyFixtures => verify::fixtures(&root),
         Command::Record(args) => record::run(&root, args),
     }
 }

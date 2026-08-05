@@ -307,6 +307,115 @@ pub fn no_webview(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// RWI fixtures that `ReplayTransport` can consume. `socket-handshake` is the
+/// glib envelope and is verified separately by shape, not by replay.
+const RWI_FIXTURES: &[&str] = &[
+    "attach",
+    "breakpoint-hit",
+    "target-multiplexed",
+    "large-bundle",
+    "network-load",
+    "dom-css",
+    "timeline-record",
+    "storage",
+];
+
+/// Replay every committed RWI fixture: each recorded send must match, with no
+/// unmatched method left for a later caller to trip over silently.
+pub fn fixtures(root: &Path) -> Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(verify_fixtures_async(root))
+}
+
+async fn verify_fixtures_async(root: &Path) -> Result<()> {
+    use mjx_wk_transport::{ReplayTransport, Transport};
+
+    let dir = root.join("fixtures");
+    let envelope = dir.join("socket-handshake.jsonl");
+    if !envelope.is_file() {
+        bail!("missing {}", envelope.display());
+    }
+    verify_envelope_shape(&envelope)?;
+
+    for name in RWI_FIXTURES {
+        let path = dir.join(format!("{name}.jsonl"));
+        if !path.is_file() {
+            bail!("missing RWI fixture {}", path.display());
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let mut transport = ReplayTransport::from_str(&text, path.display().to_string())
+            .with_context(|| format!("parsing {}", path.display()))?;
+
+        let mut sends = 0usize;
+        for (n, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: serde_json::Value = serde_json::from_str(line)
+                .with_context(|| format!("{}:{}: invalid jsonl", path.display(), n + 1))?;
+            if entry.get("dir").and_then(|d| d.as_str()) != Some("send") {
+                continue;
+            }
+            let frame = entry
+                .get("frame")
+                .context("send line missing frame")?
+                .clone();
+            let wire = serde_json::to_string(&frame)?;
+            transport
+                .send(wire)
+                .await
+                .with_context(|| format!("{}: unmatched send at line {}", path.display(), n + 1))?;
+            sends += 1;
+            // Drain any queued receives so the next send sees a clean head.
+            while let Some(Ok(_)) = transport.recv().await {}
+        }
+        println!("ok {} ({sends} sends replayed)", path.display());
+    }
+    println!("all {} RWI fixtures replay cleanly", RWI_FIXTURES.len());
+    Ok(())
+}
+
+fn verify_envelope_shape(path: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    let mut saw_setup = false;
+    let mut saw_did_setup = false;
+    let mut saw_targets = false;
+    for (n, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let entry: serde_json::Value = serde_json::from_str(line)
+            .with_context(|| format!("{}:{}: invalid envelope jsonl", path.display(), n + 1))?;
+        let name = entry
+            .get("name")
+            .and_then(|v| v.as_str())
+            .context("envelope line missing name")?;
+        match name {
+            "SetupInspectorClient" => saw_setup = true,
+            "DidSetupInspectorClient" => saw_did_setup = true,
+            "SetTargetList" => saw_targets = true,
+            _ => {}
+        }
+        if entry.get("frame").is_some() {
+            bail!(
+                "{} looks like an RWI trace; socket-handshake must be glib envelope lines",
+                path.display()
+            );
+        }
+    }
+    if !(saw_setup && saw_did_setup && saw_targets) {
+        bail!(
+            "{} incomplete: setup={saw_setup} did_setup={saw_did_setup} targets={saw_targets}",
+            path.display()
+        );
+    }
+    println!("ok {} (glib envelope)", path.display());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

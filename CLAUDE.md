@@ -138,8 +138,13 @@ To record against the local browser:
 ```sh
 WEBKIT_INSPECTOR_SERVER=127.0.0.1:2999 \
   /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser https://example.com &
+cargo run -p xtask -- record --scenario attach --out fixtures/attach.jsonl
 cargo run -p xtask -- record --scenario attach --save-targets-page
 ```
+
+`--save-targets-page` writes `fixtures/targets-page.json` (a `SetTargetList` dump). There is no
+server-served inspectable-targets HTML page on WebKitGTK — see trap 1 in
+`docs/PROTOCOL-NOTES.md`.
 
 ## Git / commits
 

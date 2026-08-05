@@ -774,16 +774,16 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     for step in steps {
         match step {
             Step::Call(method, params) => {
-                call_step(
-                    &mut client,
-                    &target,
-                    &mut trace,
-                    &mut ctx,
-                    &mut next_id,
+                call_step(CallStep {
+                    client: &mut client,
+                    target: &target,
+                    trace: &mut trace,
+                    ctx: &mut ctx,
+                    next_id: &mut next_id,
                     started,
                     method,
-                    params(),
-                )
+                    params: params(),
+                })
                 .await?;
             }
             Step::CallCtx(method, params) => {
@@ -793,16 +793,16 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
                     continue;
                 }
                 let params = params(&ctx)?;
-                call_step(
-                    &mut client,
-                    &target,
-                    &mut trace,
-                    &mut ctx,
-                    &mut next_id,
+                call_step(CallStep {
+                    client: &mut client,
+                    target: &target,
+                    trace: &mut trace,
+                    ctx: &mut ctx,
+                    next_id: &mut next_id,
                     started,
                     method,
                     params,
-                )
+                })
                 .await?;
             }
             Step::Settle(ms) => {
@@ -896,17 +896,30 @@ async fn record(root: &Path, args: RecordArgs) -> Result<()> {
     Ok(())
 }
 
-/// Issue one RWI command, wrapping non-`Target.*` methods for the page tunnel.
-async fn call_step(
-    client: &mut Client,
-    target: &Target,
-    trace: &mut Vec<TraceLine>,
-    ctx: &mut Ctx,
-    next_id: &mut u64,
+/// Bundled args for one multiplexed/root command issue.
+struct CallStep<'a> {
+    client: &'a mut Client,
+    target: &'a Target,
+    trace: &'a mut Vec<TraceLine>,
+    ctx: &'a mut Ctx,
+    next_id: &'a mut u64,
     started: Instant,
-    method: &str,
+    method: &'a str,
     params: Value,
-) -> Result<()> {
+}
+
+/// Issue one RWI command, wrapping non-`Target.*` methods for the page tunnel.
+async fn call_step(step: CallStep<'_>) -> Result<()> {
+    let CallStep {
+        client,
+        target,
+        trace,
+        ctx,
+        next_id,
+        started,
+        method,
+        params,
+    } = step;
     let inner_id = *next_id;
     *next_id += 1;
     let inner = json!({ "id": inner_id, "method": method, "params": params });
@@ -976,10 +989,7 @@ async fn record_socket_handshake(root: &Path, args: RecordArgs) -> Result<()> {
             continue;
         };
         let type_str = message_param_type(&name)?;
-        let body_hex = match type_str {
-            None => None,
-            Some(_) => Some(hex::encode(variant.data())),
-        };
+        let body_hex = type_str.map(|_| hex::encode(variant.data()));
         trace.push(EnvelopeLine {
             t: started.elapsed().as_micros(),
             dir: "recv",

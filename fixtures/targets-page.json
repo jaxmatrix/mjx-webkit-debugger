@@ -1,0 +1,12 @@
+{
+  "note": "WebKitGTK does not serve an inspectable-targets HTML page. This file is the SetTargetList dump from a live recording.",
+  "targets": [
+    {
+      "connectionId": 1,
+      "targetId": 1,
+      "name": "mjx-webkit-debugger fixture page",
+      "url": "http://127.0.0.1:8731/index.html",
+      "type": "WebPage"
+    }
+  ]
+}

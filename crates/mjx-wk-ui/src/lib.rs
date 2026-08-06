@@ -22,6 +22,7 @@
 //! Phase 1.
 
 pub mod action;
+pub mod breakpoint_list;
 pub mod call_stack;
 pub mod code_view;
 pub mod console_view;

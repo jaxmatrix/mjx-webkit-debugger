@@ -31,3 +31,8 @@ tracing.workspace = true
 [[bench]]
 name = "text"
 harness = false
+
+[dev-dependencies]
+mjx-wk-dialect.workspace = true
+mjx-wk-transport.workspace = true
+async-trait.workspace = true

@@ -2306,8 +2306,10 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "mjx-wk-dialect",
  "mjx-wk-protocol",
  "mjx-wk-session",
+ "mjx-wk-transport",
  "serde",
  "serde_json",
  "sourcemap",

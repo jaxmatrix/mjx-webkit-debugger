@@ -4,11 +4,10 @@ A native debugger for WebKit programs. Attaches to an already-running WebKit app
 Remote Inspector protocol and gives a Chrome-DevTools-grade experience — browse every source file,
 set breakpoints, pause, inspect state — **without embedding a webview itself**.
 
-> **Status: Phase 1a.** The workspace, the frozen interfaces, the generated protocol bindings, and
-> the offline test harness are in place. The application does not yet attach to anything: the
-> feature work is decomposed into [`docs/tasks/`](docs/tasks/) and is being filled in. See
-> [`PLAN.md`](PLAN.md) for what ships when. This section will say something different when v0.1.0
-> lands, and not before.
+> **Status: Phase 1 — source browser.** The app attaches to a running WebKitGTK inspector server,
+> lists targets, browses sources (live or via fixture replay), and ships multi-arch release
+> binaries. Breakpoints, pause/step, and the rest of Chrome parity are still ahead — see
+> [`PLAN.md`](PLAN.md) and [`docs/CHROME-PARITY.md`](docs/CHROME-PARITY.md).
 
 ## Why not just use Web Inspector?
 
@@ -42,32 +41,78 @@ one Tauri app everywhere means speaking both protocols. See [`docs/TRANSPORTS.md
 
 ## Getting started
 
+### Install a release binary
+
+Tagged commits (`v*`) publish archives and SHA-256 checksums on
+[GitHub Releases](https://github.com/jaxmatrix/mjx-webkit-debugger/releases):
+
+| Archive suffix | Platform |
+|---|---|
+| `linux-x86_64` | Linux x86_64 |
+| `linux-aarch64` | Linux aarch64 |
+| `macos-universal` | macOS (Intel + Apple silicon, lipo fat binary) |
+| `windows-x86_64` | Windows x86_64 |
+
+Download the archive for your platform and the matching `.sha256` file, verify, then unpack:
+
+```sh
+sha256sum -c mjx-webkit-debugger-v0.1.0-linux-x86_64.tar.gz.sha256
+tar -xzf mjx-webkit-debugger-v0.1.0-linux-x86_64.tar.gz
+./mjx-webkit-debugger-v0.1.0-linux-x86_64/mjx-webkit-debugger --help
+```
+
+On macOS use `shasum -a 256 -c …`; on Windows, compare the published digest in PowerShell with
+`Get-FileHash -Algorithm SHA256`.
+
+**Linux runtime requirements.** The UI renders through `wgpu` and needs a working GPU stack plus
+the usual windowing libraries. On Debian/Ubuntu:
+
+```sh
+sudo apt-get install -y \
+  mesa-vulkan-drivers libvulkan1 \
+  libegl1 libgl1 \
+  libxkbcommon0 libwayland-client0 \
+  libx11-6 libxcb1 libxrandr2 libxi6
+```
+
+Use your vendor’s Vulkan/GL drivers instead of Mesa when that is what the machine already runs.
+Without a usable GPU/display stack the binary will start and then fail to open a window.
+
+### Attach to a WebKit app
+
 Start the debuggee with its inspector server enabled:
 
 ```sh
 WEBKIT_INSPECTOR_SERVER=127.0.0.1:2999 ./your-app
 ```
 
-Then:
+Then, with a release binary on your `PATH` (or via `cargo run --release -p mjx-webkit-debugger`):
 
 ```sh
-cargo run --release -p mjx-webkit-debugger -- list             # what is inspectable?
-cargo run --release -p mjx-webkit-debugger -- attach 127.0.0.1:2999
+mjx-webkit-debugger list                               # what is inspectable? (default 127.0.0.1:2999)
+mjx-webkit-debugger attach 127.0.0.1:2999
 ```
 
-There is also a replay mode that drives the whole UI from a recorded trace with no debuggee at all,
-which is how it is developed and demonstrated offline:
+Replay mode drives the whole UI from a recorded trace with no debuggee at all — useful offline and
+in CI:
 
 ```sh
+mjx-webkit-debugger replay fixtures/attach.jsonl
+# or from a source checkout:
 cargo run -p mjx-webkit-debugger -- replay fixtures/attach.jsonl
 ```
+
+To cut a release: merge to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The Release
+workflow builds every target in `dist-workspace.toml`, runs `verify-no-webview`, and uploads
+archives plus `.sha256` files to the GitHub Release for that tag.
 
 ## Known limitations
 
 Stated plainly, because a user who cannot tell whether a feature is missing or merely broken has
 been failed twice. [`docs/CHROME-PARITY.md`](docs/CHROME-PARITY.md) tracks the full matrix.
 
-- **Not yet functional.** Phase 1a froze the interfaces; the bodies are being filled in.
+- **Source browser only.** Attach, list, browse, and replay work; breakpoints, pause/step, and
+  most Chrome panels are not implemented yet — see [`docs/CHROME-PARITY.md`](docs/CHROME-PARITY.md).
 - **Restart frame** and **Trusted Type breakpoints** have no WebKit equivalent and will not be
   implemented.
 - **Lighthouse, Recorder, WebAudio, WebAuthn, Sensors, and Autofill** panels are out of scope.

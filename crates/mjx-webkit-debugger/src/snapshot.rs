@@ -1,10 +1,13 @@
 //! Shared snapshot the session task publishes and the UI reads via [`arc_swap`].
 //!
-//! **Owned by `docs/tasks/T-010-app-shell.md`.**
+//! **Owned by `docs/tasks/T-010-app-shell.md` (Phase 2 shell wiring).**
 
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use mjx_wk_console::ConsoleModel;
+use mjx_wk_debug::DebugModel;
+use mjx_wk_session::{AgentSnapshot, SessionHandle};
 use mjx_wk_source::{SourceId, SourceText, SourceTreeNode};
 
 /// Immutable UI-facing session state for one frame.
@@ -24,6 +27,12 @@ pub struct ShellSnapshot {
     pub selected: Option<SourceId>,
     /// Cached text for [`Self::selected`], ready for the code view.
     pub selected_text: Option<Arc<SourceText>>,
+    /// Live session for [`crate::support::SessionSupport`] (cheap clone).
+    pub session: Option<SessionHandle>,
+    /// Debugger model published by [`mjx_wk_session::AgentRegistry`].
+    pub debug: Option<AgentSnapshot<DebugModel>>,
+    /// Console model published by the registry.
+    pub console: Option<AgentSnapshot<ConsoleModel>>,
 }
 
 impl Default for ShellSnapshot {
@@ -36,6 +45,9 @@ impl Default for ShellSnapshot {
             tree: empty_tree(),
             selected: None,
             selected_text: None,
+            session: None,
+            debug: None,
+            console: None,
         }
     }
 }

@@ -1,6 +1,6 @@
 //! The application: window, dock, and the wiring between them and the session.
 //!
-//! **Owned by `docs/tasks/T-010-app-shell.md`.**
+//! **Owned by `docs/tasks/T-010-app-shell.md` (Phase 2 shell wiring).**
 //!
 //! # The split that keeps it fast
 //!
@@ -25,18 +25,22 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use egui_dock::{DockArea, DockState, NodeIndex, Style as DockStyle, TabViewer};
+use mjx_wk_debug::{BreakpointState, DebugModel};
 use mjx_wk_dialect::Support;
 use mjx_wk_protocol::Domain;
 use mjx_wk_source::highlight::TreeSitterHighlighter;
 use mjx_wk_source::{Highlighter, SourceTreeNode};
-use mjx_wk_ui::code_view::{CodeView, CodeViewModel};
+use mjx_wk_ui::call_stack::CallStackList;
+use mjx_wk_ui::code_view::{BreakpointMark, CodeView, CodeViewModel};
+use mjx_wk_ui::console_view::ConsoleView;
 use mjx_wk_ui::source_tree::SourceTree;
+use mjx_wk_ui::variables::{VariablesModel, VariablesTree};
 use mjx_wk_ui::{Action, Panel, PanelCtx, PanelId, SupportQuery, Theme};
 use tokio::sync::mpsc;
 
 use crate::session_host::{self, HostStartup, SessionCommand};
 use crate::snapshot::{SharedSnapshot, ShellSnapshot};
-use crate::support::DetachedSupport;
+use crate::support::{DetachedSupport, SessionSupport};
 use crate::ui_thread::UiFrameGuard;
 
 /// How the application starts.
@@ -53,14 +57,16 @@ pub enum Startup {
     Replay { fixture: PathBuf },
 }
 
-/// Dock tabs for the v0.1 shell.
+/// Dock tabs for the Phase 2 shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Tab {
     Sources,
     Code,
+    CallStack,
+    Variables,
+    Console,
     /// Demonstrates "disabled with a reason" for an unsupported panel.
     Network,
-    Console,
 }
 
 impl Tab {
@@ -68,8 +74,10 @@ impl Tab {
         match self {
             Tab::Sources => "Sources",
             Tab::Code => "Code",
-            Tab::Network => "Network",
+            Tab::CallStack => "Call stack",
+            Tab::Variables => "Variables",
             Tab::Console => "Console",
+            Tab::Network => "Network",
         }
     }
 }
@@ -85,10 +93,15 @@ pub struct App {
     theme: Theme,
     source_tree: SourceTree,
     code_view: CodeView,
+    call_stack: CallStackList,
+    variables: VariablesTree,
+    console: ConsoleView,
     highlighter: TreeSitterHighlighter,
     /// Cached highlight lines for the last painted window.
     highlight_spans: Vec<Vec<mjx_wk_source::HighlightSpan>>,
     highlight_start: u32,
+    /// Scratch buffer for breakpoint gutter marks (rebuilt each Code frame).
+    bp_marks: Vec<(u32, BreakpointMark)>,
     network_panel: NetworkDisabledPanel,
 }
 
@@ -140,7 +153,9 @@ impl App {
         let mut dock = DockState::new(vec![Tab::Sources]);
         {
             let surface = dock.main_surface_mut();
-            let [_sources, code] = surface.split_right(NodeIndex::root(), 0.28, vec![Tab::Code]);
+            let [_sources, code] = surface.split_right(NodeIndex::root(), 0.22, vec![Tab::Code]);
+            let [code, right] = surface.split_right(code, 0.62, vec![Tab::CallStack]);
+            let [_stack, _vars] = surface.split_below(right, 0.45, vec![Tab::Variables]);
             let [code, _console] = surface.split_below(code, 0.72, vec![Tab::Console]);
             surface[code].append_tab(Tab::Network);
         }
@@ -153,9 +168,13 @@ impl App {
             theme: Theme::dark(),
             source_tree: SourceTree::new(),
             code_view: CodeView::new(),
+            call_stack: CallStackList::new(),
+            variables: VariablesTree::new(),
+            console: ConsoleView::new(),
             highlighter: TreeSitterHighlighter::new(),
             highlight_spans: Vec::new(),
             highlight_start: 0,
+            bp_marks: Vec::new(),
             network_panel: NetworkDisabledPanel::new(),
         }
     }
@@ -186,7 +205,6 @@ impl eframe::App for App {
         // 2. Snapshot is a pointer load — never awaits.
         let snap = self.snapshot.load_full();
 
-        // egui 0.35: TopBottomPanel → Panel; show_inside → show.
         egui::containers::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.strong("mjx-webkit-debugger");
@@ -203,16 +221,31 @@ impl eframe::App for App {
         });
 
         // 3. Dock: panels return Actions collected for the next frame.
-        let support = DetachedSupport::not_attached();
+        let detached = DetachedSupport::not_attached();
+        let session_support = snap.session.as_ref().map(SessionSupport::new);
+        let support: &dyn SupportQuery = match &session_support {
+            Some(s) => s,
+            None => &detached,
+        };
+
+        let debug_model = snap.debug.as_ref().map(|d| d.load_full());
+        let console_model = snap.console.as_ref().map(|c| c.load_full());
+
         let mut viewer = ShellTabViewer {
             snap: &snap,
-            support: &support,
+            support,
             theme: &self.theme,
             source_tree: &mut self.source_tree,
             code_view: &mut self.code_view,
+            call_stack: &mut self.call_stack,
+            variables: &mut self.variables,
+            console: &mut self.console,
             highlighter: &mut self.highlighter,
             highlight_spans: &mut self.highlight_spans,
             highlight_start: &mut self.highlight_start,
+            bp_marks: &mut self.bp_marks,
+            debug: debug_model.as_deref(),
+            console_model: console_model.as_deref(),
             network: &mut self.network_panel,
             actions: Vec::new(),
         };
@@ -239,9 +272,15 @@ struct ShellTabViewer<'a> {
     theme: &'a Theme,
     source_tree: &'a mut SourceTree,
     code_view: &'a mut CodeView,
+    call_stack: &'a mut CallStackList,
+    variables: &'a mut VariablesTree,
+    console: &'a mut ConsoleView,
     highlighter: &'a mut TreeSitterHighlighter,
     highlight_spans: &'a mut Vec<Vec<mjx_wk_source::HighlightSpan>>,
     highlight_start: &'a mut u32,
+    bp_marks: &'a mut Vec<(u32, BreakpointMark)>,
+    debug: Option<&'a DebugModel>,
+    console_model: Option<&'a mjx_wk_console::ConsoleModel>,
     network: &'a mut NetworkDisabledPanel,
     actions: Vec<Action>,
 }
@@ -267,31 +306,45 @@ impl TabViewer for ShellTabViewer<'_> {
                         ui.label(note);
                     }
                 } else {
-                    self.actions.extend(self.source_tree.ui(
-                        ui,
-                        &ctx,
-                        tree,
-                        self.snap.selected,
-                    ));
+                    self.actions
+                        .extend(self.source_tree.ui(ui, &ctx, tree, self.snap.selected));
                 }
             }
             Tab::Code => match self.snap.selected_text.as_deref() {
                 Some(text) => {
                     let visible = self.code_view.last_visible_line_range();
-                    let window =
-                        CodeView::highlight_window(visible, text.index().line_count());
+                    let window = CodeView::highlight_window(visible, text.index().line_count());
                     *self.highlight_spans = self.highlighter.spans(text, window.clone());
                     *self.highlight_start = window.start;
+
+                    self.bp_marks.clear();
+                    if let Some(debug) = self.debug {
+                        for bp in debug.breakpoints.in_source(text.id()) {
+                            let line = match &bp.state {
+                                BreakpointState::Resolved { actual } => actual.line,
+                                _ => bp.spec.location.line,
+                            };
+                            self.bp_marks.push((line, mark_for(bp)));
+                        }
+                    }
+
+                    let execution_line = self.debug.and_then(|d| {
+                        d.paused.as_ref().and_then(|p| {
+                            p.current_frame().and_then(|f| {
+                                (f.location.source == text.id()).then_some(f.location.line)
+                            })
+                        })
+                    });
+
                     let model = CodeViewModel {
                         text,
                         spans: self.highlight_spans.as_slice(),
                         spans_start_line: *self.highlight_start,
-                        breakpoints: &[],
-                        execution_line: None,
+                        breakpoints: self.bp_marks.as_slice(),
+                        execution_line,
                         inline_values: &[],
                     };
-                    self.actions
-                        .extend(self.code_view.ui(ui, &ctx, &model));
+                    self.actions.extend(self.code_view.ui(ui, &ctx, &model));
                 }
                 None => {
                     ui.heading("Code");
@@ -305,16 +358,94 @@ impl TabViewer for ShellTabViewer<'_> {
                     }
                 }
             },
+            Tab::CallStack => {
+                if let Some(debug) = self.debug {
+                    if let Some(reason) = &debug.disabled_reason {
+                        ui.add_enabled_ui(false, |ui| {
+                            ui.heading("Call stack");
+                            ui.label(reason);
+                        });
+                    } else {
+                        self.actions
+                            .extend(self.call_stack.ui(ui, &ctx, debug.paused.as_ref()));
+                    }
+                } else {
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.heading("Call stack");
+                        ui.label(
+                            "Unavailable: Debugger domain is not attached on this target \
+                             (not attached, wrong target kind, or dialect gap).",
+                        );
+                    });
+                }
+            }
+            Tab::Variables => {
+                if let Some(debug) = self.debug {
+                    if let Some(reason) = &debug.disabled_reason {
+                        ui.add_enabled_ui(false, |ui| {
+                            ui.heading("Variables");
+                            ui.label(reason);
+                        });
+                    } else {
+                        let values = debug.paused.as_ref().and_then(|p| {
+                            p.current_frame()
+                                .and_then(|f| f.scopes.iter().find_map(|s| s.values.as_ref()))
+                        });
+                        let model = VariablesModel {
+                            values,
+                            watches: debug.watches.as_slice(),
+                        };
+                        self.actions.extend(self.variables.ui(ui, &ctx, &model));
+                    }
+                } else {
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.heading("Variables");
+                        ui.label(
+                            "Unavailable: Runtime.getProperties is not supported on this target \
+                             (not attached, wrong target kind, or dialect gap).",
+                        );
+                    });
+                }
+            }
+            Tab::Console => match self.console_model {
+                Some(model) => {
+                    self.actions.extend(self.console.ui(ui, &ctx, model));
+                }
+                None => {
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.heading("Console");
+                        ui.label(
+                            "Unavailable: `Console.enable` is not supported on this target \
+                             (not attached, wrong target kind, or dialect gap).",
+                        );
+                        ui.separator();
+                        ui.label("The panel stays visible so its absence is never a mystery.");
+                    });
+                }
+            },
             Tab::Network => {
                 self.actions
                     .extend(render_disabled_panel(ui, self.network, self.support));
             }
-            Tab::Console => {
-                ui.heading("Console");
-                ui.label("Console panel arrives in Phase 2 (T-204).");
-                ui.label(self.snap.status.as_str());
-            }
         }
+    }
+}
+
+fn mark_for(bp: &mjx_wk_debug::Breakpoint) -> BreakpointMark {
+    if !bp.spec.enabled {
+        return BreakpointMark::Disabled;
+    }
+    if bp.spec.is_logpoint() {
+        return BreakpointMark::Logpoint;
+    }
+    if bp.spec.condition.is_some() {
+        return BreakpointMark::Conditional;
+    }
+    match &bp.state {
+        BreakpointState::Pending => BreakpointMark::Pending,
+        BreakpointState::Resolved { .. } => BreakpointMark::Resolved,
+        BreakpointState::Failed { .. } => BreakpointMark::Pending,
+        BreakpointState::Disabled => BreakpointMark::Disabled,
     }
 }
 

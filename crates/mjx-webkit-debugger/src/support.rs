@@ -8,19 +8,16 @@ use mjx_wk_session::SessionHandle;
 use mjx_wk_ui::SupportQuery;
 
 /// Answers support queries from a live session (cheap mutex read, never awaits).
-///
-/// Wired once Wave 2 keeps a `SessionHandle` reachable from the UI thread
-/// (via `Arc` / snapshot) without awaiting.
 #[derive(Debug)]
-#[allow(dead_code, reason = "Wave 2: live SupportQuery once session is UI-reachable")]
 pub struct SessionSupport {
     session: SessionHandle,
 }
 
 impl SessionSupport {
-    #[allow(dead_code, reason = "Wave 2: constructed when attach succeeds")]
-    pub fn new(session: SessionHandle) -> Self {
-        Self { session }
+    pub fn new(session: &SessionHandle) -> Self {
+        Self {
+            session: session.clone(),
+        }
     }
 }
 

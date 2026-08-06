@@ -45,14 +45,13 @@ pub fn in_ui_frame() -> bool {
 /// Call this at the top of any helper that could block or `.await`. The UI
 /// path must only `try_send` / `try_recv` on channels.
 pub fn ensure_not_ui_thread() {
-    #[cfg(debug_assertions)]
-    {
-        if in_ui_frame() {
-            panic!(
-                "UI thread must not await or block during a frame \
-                 (T-010: actions go through channels; snapshots are Arc clones)"
-            );
-        }
+    // Always evaluate `in_ui_frame` so release builds (RUSTFLAGS=-D warnings)
+    // do not see it as dead code; panic only in debug.
+    if cfg!(debug_assertions) && in_ui_frame() {
+        panic!(
+            "UI thread must not await or block during a frame \
+             (T-010: actions go through channels; snapshots are Arc clones)"
+        );
     }
 }
 

@@ -23,3 +23,10 @@ thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+mjx-wk-perf = { workspace = true }
+
+[[bench]]
+name = "attach"
+harness = false

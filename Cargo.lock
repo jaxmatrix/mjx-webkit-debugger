@@ -2327,6 +2327,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mjx-wk-perf"
+version = "0.1.0"
+
+[[package]]
 name = "mjx-wk-profile"
 version = "0.1.0"
 dependencies = [

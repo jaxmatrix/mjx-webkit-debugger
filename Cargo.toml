@@ -25,6 +25,7 @@ members = [
     # L6 — the app
     "crates/mjx-webkit-debugger",
     # tooling (ships nothing)
+    "crates/mjx-wk-perf",
     "xtask",
 ]
 exclude = ["reference"]

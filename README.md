@@ -50,7 +50,7 @@ Tagged commits (`v*`) publish archives and SHA-256 checksums on
 |---|---|
 | `linux-x86_64` | Linux x86_64 |
 | `linux-aarch64` | Linux aarch64 |
-| `macos-universal` | macOS (Intel + Apple silicon, lipo fat binary) |
+| `macos-aarch64` | macOS Apple silicon (arm64) |
 | `windows-x86_64` | Windows x86_64 |
 
 Download the archive for your platform and the matching `.sha256` file, verify, then unpack:

@@ -445,6 +445,26 @@ fn platform_unavailable(endpoint: &str) -> TransportError {
 pub struct TcpTransport;
 
 #[cfg(not(unix))]
+#[async_trait]
+impl crate::Transport for TcpTransport {
+    async fn send(&mut self, _text: String) -> Result<(), TransportError> {
+        Err(platform_unavailable("windows"))
+    }
+
+    async fn recv(&mut self) -> Option<Result<String, TransportError>> {
+        Some(Err(platform_unavailable("windows")))
+    }
+
+    async fn close(&mut self) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    fn dialect(&self) -> mjx_wk_dialect::DialectKind {
+        mjx_wk_dialect::DialectKind::WebKitRwi
+    }
+}
+
+#[cfg(not(unix))]
 impl TcpInspectorServer {
     /// Open a session to one target.
     pub async fn attach(&self, _key: &TargetKey) -> Result<TcpTransport, TransportError> {

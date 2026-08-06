@@ -62,9 +62,11 @@ jobs:
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             archive_ext: tar.gz
-          - name: macos-universal
+          # Native arm64 only — universal lipo needs a glib x86_64 sysroot for
+          # the WebKitGTK SocketConnection dependency and is deferred.
+          - name: macos-aarch64
             runner: macos-latest
-            target: universal-apple-darwin
+            target: aarch64-apple-darwin
             archive_ext: tar.gz
           - name: windows-x86_64
             runner: windows-latest
@@ -76,7 +78,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -90,22 +92,14 @@ jobs:
             libxkbcommon-dev libwayland-dev libxcb1-dev \
             libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
 
-      - name: Build (single target)
-        if: matrix.target != 'universal-apple-darwin'
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install glib pkg-config
+
+      - name: Build
         shell: bash
         run: |
           cargo build --release -p "${PACKAGE}" --target "${{ matrix.target }}"
-
-      - name: Build (macOS universal via lipo)
-        if: matrix.target == 'universal-apple-darwin'
-        run: |
-          cargo build --release -p "${PACKAGE}" --target aarch64-apple-darwin
-          cargo build --release -p "${PACKAGE}" --target x86_64-apple-darwin
-          mkdir -p "target/universal-apple-darwin/release"
-          lipo -create -output "target/universal-apple-darwin/release/${BIN}" \
-            "target/aarch64-apple-darwin/release/${BIN}" \
-            "target/x86_64-apple-darwin/release/${BIN}"
-          lipo -info "target/universal-apple-darwin/release/${BIN}"
 
       - name: Stage archive and SHA-256 checksum
         shell: bash

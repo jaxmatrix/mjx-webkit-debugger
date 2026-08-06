@@ -36,6 +36,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-verify-no-webview
+      # Transport links glib for the WebKitGTK inspector SocketConnection handshake.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev pkg-config \
+            libxkbcommon-dev libwayland-dev libxcb1-dev \
+            libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
       - name: No webview in the dependency graph
         run: cargo run -p xtask -- verify-no-webview
 
@@ -79,7 +86,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+          sudo apt-get install -y libglib2.0-dev pkg-config \
+            libxkbcommon-dev libwayland-dev libxcb1-dev \
             libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
 
       - name: Build (single target)

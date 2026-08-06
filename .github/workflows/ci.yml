@@ -32,7 +32,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+          sudo apt-get install -y libglib2.0-dev pkg-config \
+            libxkbcommon-dev libwayland-dev libxcb1-dev \
             libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
 
       - run: cargo fmt --all --check
@@ -52,7 +53,8 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+          sudo apt-get install -y libglib2.0-dev pkg-config \
+            libxkbcommon-dev libwayland-dev libxcb1-dev \
             libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
       - name: Assert CLAUDE.md performance budgets
         run: cargo run -p xtask -- bench
@@ -67,7 +69,8 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+          sudo apt-get install -y libglib2.0-dev pkg-config \
+            libxkbcommon-dev libwayland-dev libxcb1-dev \
             libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
       # 10 000 lines of generated protocol documentation, held to the same
       # standard as everything else.
@@ -82,6 +85,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      # Transport links glib for the WebKitGTK inspector SocketConnection handshake.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev pkg-config \
+            libxkbcommon-dev libwayland-dev libxcb1-dev \
+            libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
 
       # The project's central claim: the debugger is not itself a WebKit
       # program, so the debuggee cannot take it down. Enforced, not asserted.

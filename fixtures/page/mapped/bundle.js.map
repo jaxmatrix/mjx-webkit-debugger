@@ -1,0 +1,12 @@
+{
+  "version": 3,
+  "file": "bundle.js",
+  "sources": [
+    "src/shared.js"
+  ],
+  "sourcesContent": [
+    "export function add(a, b) {\n  return a + b;\n}\n"
+  ],
+  "names": [],
+  "mappings": "AAAA,8BAAA"
+}

@@ -4,6 +4,8 @@
 //! `expect_used` does not cover them — allow here rather than hide real
 //! assertion failures behind silent `let _ =`.
 
+#![cfg(unix)]
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::time::Duration;

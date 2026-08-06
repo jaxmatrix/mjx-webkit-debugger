@@ -64,17 +64,27 @@
 //! each direction — sits exactly where it does.
 
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::Command;
 
 use async_trait::async_trait;
+#[cfg(unix)]
 use glib::prelude::*;
+#[cfg(unix)]
 use glib::{Variant, VariantTy};
 use mjx_wk_dialect::DialectKind;
 use mjx_wk_protocol::TargetType;
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
 use sha1::{Digest, Sha1};
 
 use crate::{Target, TransportError, TransportOrigin};
+
+/// Why WebKitGTK inspector TCP is unavailable on non-Unix platforms.
+#[cfg(not(unix))]
+pub(crate) const WEBKITGTK_TCP_UNAVAILABLE: &str =
+    "WebKitGTK inspector TCP (GLib SocketConnection) is unavailable on this platform; \
+     use ReplayTransport for offline fixtures (CDP attach is planned for Windows)";
 
 /// Flag bit: GVariant payload is little-endian. Linux WebKitGTK always sets it.
 pub const BYTE_ORDER_LITTLE_ENDIAN: u8 = 1 << 0;
@@ -83,12 +93,20 @@ pub const BYTE_ORDER_LITTLE_ENDIAN: u8 = 1 << 0;
 /// `DidSetupInspectorClient` is ~70 KB.
 pub const MAX_MESSAGE_BODY_SIZE: usize = 16 * 1024 * 1024;
 
+#[cfg(unix)]
 const BACKEND_COMMANDS_PATH: &str =
     "/org/webkit/inspector/UserInterface/Protocol/InspectorBackendCommands.js";
 
 /// Default shared library used to hash `InspectorBackendCommands.js`.
+#[cfg(unix)]
 pub fn default_webkit_library() -> PathBuf {
     PathBuf::from("/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0")
+}
+
+/// Default shared library used to hash `InspectorBackendCommands.js`.
+#[cfg(not(unix))]
+pub fn default_webkit_library() -> PathBuf {
+    PathBuf::new()
 }
 
 /// How to reach a specific target again.
@@ -226,6 +244,7 @@ pub fn descriptors_from_target_list(
 
 /// SHA-1 hex digest (ASCII bytes) of `InspectorBackendCommands.js` inside a
 /// WebKit shared library.
+#[cfg(unix)]
 pub fn backend_commands_hash(library: &Path) -> Result<Vec<u8>, TransportError> {
     let output = Command::new("gresource")
         .args([
@@ -254,12 +273,24 @@ pub fn backend_commands_hash(library: &Path) -> Result<Vec<u8>, TransportError> 
     Ok(hex::encode(digest).into_bytes())
 }
 
+/// SHA-1 hex digest (ASCII bytes) of `InspectorBackendCommands.js` inside a
+/// WebKit shared library.
+#[cfg(not(unix))]
+pub fn backend_commands_hash(library: &Path) -> Result<Vec<u8>, TransportError> {
+    let _ = library;
+    Err(TransportError::Discovery {
+        endpoint: "WebKitGTK".into(),
+        reason: WEBKITGTK_TCP_UNAVAILABLE.into(),
+    })
+}
+
 /// Frame a message for the wire.
 ///
 /// **Owned by `docs/tasks/T-001-target-discovery.md`.**
 ///
 /// Big-endian body length, little-endian payload flag, then name NUL + GVariant.
 /// Rejects a payload larger than [`u32::MAX`] rather than truncating.
+#[cfg(unix)]
 pub fn encode_message(event: &SocketEvent) -> Result<Vec<u8>, TransportError> {
     let (name, parameters) = event_to_variant(event)?;
     let mut body = Vec::new();
@@ -278,6 +309,14 @@ pub fn encode_message(event: &SocketEvent) -> Result<Vec<u8>, TransportError> {
     Ok(out)
 }
 
+/// Frame a message for the wire.
+#[cfg(not(unix))]
+pub fn encode_message(_event: &SocketEvent) -> Result<Vec<u8>, TransportError> {
+    Err(TransportError::Malformed(format!(
+        "{WEBKITGTK_TCP_UNAVAILABLE}: cannot encode SocketConnection messages"
+    )))
+}
+
 /// Pull complete messages out of a receive buffer.
 ///
 /// **Owned by `docs/tasks/T-001-target-discovery.md`.**
@@ -285,6 +324,7 @@ pub fn encode_message(event: &SocketEvent) -> Result<Vec<u8>, TransportError> {
 /// Returns the decoded messages and leaves any partial tail in `buffer`. A
 /// `DidSetupInspectorClient` payload is tens of kilobytes and will routinely
 /// arrive split across several reads.
+#[cfg(unix)]
 pub fn decode_messages(buffer: &mut Vec<u8>) -> Result<Vec<SocketEvent>, TransportError> {
     let mut events = Vec::new();
     while let Some(event) = take_one_message(buffer)? {
@@ -293,6 +333,15 @@ pub fn decode_messages(buffer: &mut Vec<u8>) -> Result<Vec<SocketEvent>, Transpo
     Ok(events)
 }
 
+/// Pull complete messages out of a receive buffer.
+#[cfg(not(unix))]
+pub fn decode_messages(_buffer: &mut Vec<u8>) -> Result<Vec<SocketEvent>, TransportError> {
+    Err(TransportError::Malformed(format!(
+        "{WEBKITGTK_TCP_UNAVAILABLE}: cannot decode SocketConnection messages"
+    )))
+}
+
+#[cfg(unix)]
 fn take_one_message(buffer: &mut Vec<u8>) -> Result<Option<SocketEvent>, TransportError> {
     if buffer.len() < 4 {
         return Ok(None);
@@ -335,6 +384,7 @@ fn take_one_message(buffer: &mut Vec<u8>) -> Result<Option<SocketEvent>, Transpo
     Ok(Some(variant_to_event(name, payload)?))
 }
 
+#[cfg(unix)]
 fn parse_payload(type_str: &str, payload: &[u8]) -> Result<Variant, TransportError> {
     let ty = VariantTy::new(type_str).map_err(|e| {
         TransportError::Malformed(format!("invalid GVariant type `{type_str}`: {e}"))
@@ -342,6 +392,7 @@ fn parse_payload(type_str: &str, payload: &[u8]) -> Result<Variant, TransportErr
     Ok(Variant::from_data_with_type(payload, ty))
 }
 
+#[cfg(unix)]
 fn event_to_variant(
     event: &SocketEvent,
 ) -> Result<(&'static str, Option<Variant>), TransportError> {
@@ -416,6 +467,7 @@ fn event_to_variant(
     })
 }
 
+#[cfg(unix)]
 fn variant_to_event(name: &str, payload: &[u8]) -> Result<SocketEvent, TransportError> {
     match name {
         "DidSetupInspectorClient" => {
@@ -487,6 +539,7 @@ fn variant_to_event(name: &str, payload: &[u8]) -> Result<SocketEvent, Transport
     }
 }
 
+#[cfg(unix)]
 /// GVariant serialization of `(ay)` for a bytestring.
 ///
 /// When `(ay)` is the whole value, the bytestring is `data` + NUL — the parent
@@ -498,6 +551,7 @@ fn bytestring_tuple_payload(data: &[u8]) -> Vec<u8> {
     out
 }
 
+#[cfg(unix)]
 fn bytestring_from_ay_tuple(variant: &Variant) -> Result<Vec<u8>, TransportError> {
     let child = variant
         .try_child_value(0)
@@ -514,6 +568,7 @@ fn bytestring_from_ay_tuple(variant: &Variant) -> Result<Vec<u8>, TransportError
     Ok(slice.to_vec())
 }
 
+#[cfg(unix)]
 fn parse_tt(variant: &Variant) -> Result<(u64, u64), TransportError> {
     let a = variant
         .try_child_value(0)
@@ -526,6 +581,7 @@ fn parse_tt(variant: &Variant) -> Result<(u64, u64), TransportError> {
     Ok((a, b))
 }
 
+#[cfg(unix)]
 fn parse_tts(variant: &Variant) -> Result<(u64, u64, String), TransportError> {
     let (a, b) = parse_tt(variant)?;
     let message = variant
@@ -535,6 +591,7 @@ fn parse_tts(variant: &Variant) -> Result<(u64, u64, String), TransportError> {
     Ok((a, b, message))
 }
 
+#[cfg(unix)]
 fn parse_target_list(variant: &Variant) -> Result<(u64, Vec<SocketTarget>), TransportError> {
     let connection_id = variant
         .try_child_value(0)
@@ -590,6 +647,11 @@ mod tests {
         // for socket ids must fail rather than parse nonsense.
         assert_eq!(TargetKey("com.example.app/page-3".into()).as_ids(), None);
     }
+}
+
+#[cfg(all(test, unix))]
+mod framing_tests {
+    use super::*;
 
     #[test]
     fn setup_round_trips_through_glib_framing() {

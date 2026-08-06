@@ -1,5 +1,7 @@
 //! Framing and discovery integration tests for the glib SocketConnection protocol.
 
+#![cfg(unix)]
+
 use mjx_wk_protocol::TargetType;
 use mjx_wk_transport::TransportOrigin;
 use mjx_wk_transport::discovery::{

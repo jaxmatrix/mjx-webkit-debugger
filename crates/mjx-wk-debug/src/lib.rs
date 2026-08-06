@@ -37,16 +37,17 @@ use mjx_wk_dialect::{NormalizedFrame, Support};
 use mjx_wk_protocol::generated::debugger::{
     self, BreakpointActionType, BreakpointOptions, Location as ProtocolLocation,
 };
+use mjx_wk_protocol::generated::dom_debugger::{self, DOMBreakpointType, EventBreakpointType};
 use mjx_wk_protocol::generated::runtime;
 use mjx_wk_protocol::{Domain, Frame};
-use mjx_wk_session::{DomainAgent, SessionError, SessionHandle};
-use mjx_wk_source::{SourceId, SourceLocation};
+use mjx_wk_session::{DomainAgent, SessionError, SessionHandle, UnsupportedReason};
+use mjx_wk_source::{NodeId, SourceId, SourceLocation};
 use tracing::warn;
 
 pub use breakpoints::{
     Breakpoint, BreakpointAction, BreakpointActionKind, BreakpointId, BreakpointSpec,
-    BreakpointState, BreakpointStore, DomBreakpoint, EventBreakpoint, SymbolicBreakpoint,
-    UrlBreakpoint,
+    BreakpointState, BreakpointStore, DomBreakpoint, DomBreakpointKind, EventBreakpoint,
+    SymbolicBreakpoint, UrlBreakpoint, instrumentation_detail,
 };
 pub use pause::{CallFrame, PauseConfig, PauseReason, PauseState, Scope, ScopeKind, StepKind};
 pub use values::{ValueNode, ValueNodeId, ValuePreview, ValueTree};
@@ -58,6 +59,14 @@ pub use values::{ValueNode, ValueNodeId, ValuePreview, ValueTree};
 pub const DEBUG_PANEL_REQUIRES: &[(Domain, &str)] = &[
     (Domain::Debugger, "enable"),
     (Domain::Debugger, "setBreakpointByUrl"),
+];
+
+/// Non-line breakpoint members — greyed individually when unsupported.
+pub const DOM_DEBUGGER_MEMBERS: &[(Domain, &str)] = &[
+    (Domain::DomDebugger, "setDOMBreakpoint"),
+    (Domain::DomDebugger, "setEventBreakpoint"),
+    (Domain::DomDebugger, "setURLBreakpoint"),
+    (Domain::Debugger, "addSymbolicBreakpoint"),
 ];
 
 /// Everything the debugger panel displays.
@@ -128,6 +137,27 @@ impl DebugAgent {
         session.supports(Domain::Debugger, member)
     }
 
+    /// Support for a DOMDebugger / symbolic member — panel greys per kind.
+    pub fn non_line_support(session: &SessionHandle, domain: Domain, member: &str) -> Support {
+        session.supports(domain, member)
+    }
+
+    /// Why a specific non-line kind should be disabled, if it should.
+    pub fn non_line_disabled_reason(
+        session: &SessionHandle,
+        domain: Domain,
+        member: &str,
+    ) -> Option<String> {
+        if session.supports(domain, member).is_available() {
+            None
+        } else {
+            Some(format!(
+                "`{}.{member}` is unavailable on this target",
+                domain.as_str()
+            ))
+        }
+    }
+
     /// Remember an object group we opened so [`Self::detach`] can release it.
     pub fn note_object_group(&mut self, group: impl Into<String>) {
         let group = group.into();
@@ -196,6 +226,154 @@ impl DebugAgent {
         }
     }
 
+    /// `DOMDebugger.setDOMBreakpoint` — pause when the DOM changes at `bp`.
+    pub async fn set_dom_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: DomBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::DomDebugger, "setDOMBreakpoint")?;
+        session
+            .call(dom_debugger::commands::SetDomBreakpoint {
+                node_id: bp.node.0,
+                r#type: dom_kind_to_protocol(bp.kind),
+                options: None,
+            })
+            .await?;
+        self.model.breakpoints.insert_dom(bp);
+        Ok(())
+    }
+
+    /// `DOMDebugger.removeDOMBreakpoint`.
+    pub async fn remove_dom_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: &DomBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::DomDebugger, "removeDOMBreakpoint")?;
+        session
+            .call(dom_debugger::commands::RemoveDomBreakpoint {
+                node_id: bp.node.0,
+                r#type: dom_kind_to_protocol(bp.kind),
+            })
+            .await?;
+        self.model.breakpoints.remove_dom(bp);
+        Ok(())
+    }
+
+    /// `DOMDebugger.setEventBreakpoint`.
+    pub async fn set_event_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: EventBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::DomDebugger, "setEventBreakpoint")?;
+        let breakpoint_type = event_category_to_protocol(&bp.category)?;
+        session
+            .call(dom_debugger::commands::SetEventBreakpoint {
+                breakpoint_type,
+                event_name: bp.name.clone(),
+                case_sensitive: None,
+                is_regex: None,
+                options: None,
+            })
+            .await?;
+        self.model.breakpoints.insert_event(bp);
+        Ok(())
+    }
+
+    /// `DOMDebugger.removeEventBreakpoint`.
+    pub async fn remove_event_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: &EventBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::DomDebugger, "removeEventBreakpoint")?;
+        let breakpoint_type = event_category_to_protocol(&bp.category)?;
+        session
+            .call(dom_debugger::commands::RemoveEventBreakpoint {
+                breakpoint_type,
+                event_name: bp.name.clone(),
+                case_sensitive: None,
+                is_regex: None,
+            })
+            .await?;
+        self.model.breakpoints.remove_event(bp);
+        Ok(())
+    }
+
+    /// `DOMDebugger.setURLBreakpoint` — XHR/fetch URL match.
+    pub async fn set_url_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: UrlBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::DomDebugger, "setURLBreakpoint")?;
+        session
+            .call(dom_debugger::commands::SetUrlBreakpoint {
+                url: bp.pattern.clone(),
+                is_regex: Some(bp.is_regex),
+                options: None,
+            })
+            .await?;
+        self.model.breakpoints.insert_url(bp);
+        Ok(())
+    }
+
+    /// `DOMDebugger.removeURLBreakpoint`.
+    pub async fn remove_url_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: &UrlBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::DomDebugger, "removeURLBreakpoint")?;
+        session
+            .call(dom_debugger::commands::RemoveUrlBreakpoint {
+                url: bp.pattern.clone(),
+                is_regex: Some(bp.is_regex),
+            })
+            .await?;
+        self.model.breakpoints.remove_url(bp);
+        Ok(())
+    }
+
+    /// `Debugger.addSymbolicBreakpoint` — WebKit-only function-name break.
+    pub async fn add_symbolic_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: SymbolicBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::Debugger, "addSymbolicBreakpoint")?;
+        session
+            .call(debugger::commands::AddSymbolicBreakpoint {
+                symbol: bp.symbol.clone(),
+                case_sensitive: Some(bp.case_sensitive),
+                is_regex: Some(bp.is_regex),
+                options: None,
+            })
+            .await?;
+        self.model.breakpoints.insert_symbolic(bp);
+        Ok(())
+    }
+
+    /// `Debugger.removeSymbolicBreakpoint`.
+    pub async fn remove_symbolic_breakpoint(
+        &mut self,
+        session: &SessionHandle,
+        bp: &SymbolicBreakpoint,
+    ) -> Result<(), SessionError> {
+        require_member(session, Domain::Debugger, "removeSymbolicBreakpoint")?;
+        session
+            .call(debugger::commands::RemoveSymbolicBreakpoint {
+                symbol: bp.symbol.clone(),
+                case_sensitive: Some(bp.case_sensitive),
+                is_regex: Some(bp.is_regex),
+            })
+            .await?;
+        self.model.breakpoints.remove_symbolic(bp);
+        Ok(())
+    }
+
     fn handle_breakpoint_resolved(&mut self, params: &serde_json::Value) {
         let Some(id) = params
             .get("breakpointId")
@@ -225,7 +403,6 @@ impl DebugAgent {
     }
 
     fn handle_paused(&mut self, params: &serde_json::Value) {
-        // Hit counting only here — full PauseState materialisation is T-202.
         if let Some(id) = params
             .pointer("/data/breakpointId")
             .and_then(|v| v.as_str())
@@ -233,6 +410,30 @@ impl DebugAgent {
             self.model
                 .breakpoints
                 .record_hit(&BreakpointId(id.to_owned()));
+        }
+
+        // Materialise pause so "why did it stop?" is answered immediately.
+        // Script → SourceId resolution is inventory/T-202; SourceId(0) is fine
+        // for instrumentation kinds that care about the reason, not the frame.
+        if let Ok(event) = serde_json::from_value::<debugger::events::Paused>(params.clone()) {
+            let mut state = PauseState::from_paused(&event, |_| None, |_| false);
+            state.reason = refine_pause_reason(
+                state.reason,
+                event.reason,
+                event.data.as_ref(),
+                &self.model.breakpoints,
+            );
+
+            // A node-removed DOM pause invalidates that nodeId forever.
+            if matches!(event.reason, debugger::PausedReason::Dom)
+                && let Some(data) = event.data.as_ref()
+                && data.get("type").and_then(|v| v.as_str()) == Some("node-removed")
+                && let Some(id) = data.get("nodeId").and_then(|v| v.as_i64())
+            {
+                self.model.breakpoints.cleanup_dom_node(NodeId(id));
+            }
+
+            self.model.paused = Some(state);
         }
     }
 
@@ -315,6 +516,86 @@ impl DomainAgent for DebugAgent {
             }
         }
         Ok(())
+    }
+}
+
+fn require_member(
+    session: &SessionHandle,
+    domain: Domain,
+    member: &'static str,
+) -> Result<(), SessionError> {
+    if session.supports(domain, member).is_available() {
+        Ok(())
+    } else {
+        Err(SessionError::Unsupported {
+            domain,
+            member: member.into(),
+            reason: UnsupportedReason::Dialect,
+        })
+    }
+}
+
+fn dom_kind_to_protocol(kind: DomBreakpointKind) -> DOMBreakpointType {
+    match kind {
+        DomBreakpointKind::SubtreeModified => DOMBreakpointType::SubtreeModified,
+        DomBreakpointKind::AttributeModified => DOMBreakpointType::AttributeModified,
+        DomBreakpointKind::NodeRemoved => DOMBreakpointType::NodeRemoved,
+    }
+}
+
+fn event_category_to_protocol(category: &str) -> Result<EventBreakpointType, SessionError> {
+    match category {
+        "listener" => Ok(EventBreakpointType::Listener),
+        "animation-frame" | "animationFrame" => Ok(EventBreakpointType::AnimationFrame),
+        "interval" | "timer" => Ok(EventBreakpointType::Interval),
+        "timeout" => Ok(EventBreakpointType::Timeout),
+        other => Err(SessionError::Unsupported {
+            domain: Domain::DomDebugger,
+            member: format!("setEventBreakpoint({other})"),
+            reason: UnsupportedReason::DebuggeeBuild,
+        }),
+    }
+}
+
+/// Fold protocol pause reasons into the UI's "why did it stop?" answer.
+///
+/// WebKit fires symbolic breakpoints as `FunctionCall` with `data.name`; the
+/// generic map in `pause` treats that as a step. When we have a matching
+/// symbolic entry, rewrite to [`PauseReason::Instrumentation`].
+fn refine_pause_reason(
+    mapped: PauseReason,
+    protocol: debugger::PausedReason,
+    data: Option<&serde_json::Value>,
+    store: &BreakpointStore,
+) -> PauseReason {
+    let label = match protocol {
+        debugger::PausedReason::Dom => "DOM",
+        debugger::PausedReason::Listener => "Listener",
+        debugger::PausedReason::AnimationFrame => "AnimationFrame",
+        debugger::PausedReason::Interval => "Interval",
+        debugger::PausedReason::Timeout => "Timeout",
+        debugger::PausedReason::Url => "URL",
+        debugger::PausedReason::FunctionCall => "FunctionCall",
+        debugger::PausedReason::CspViolation => "CSPViolation",
+        debugger::PausedReason::BlackboxedScript => "BlackboxedScript",
+        _ => {
+            return mapped;
+        }
+    };
+
+    if matches!(protocol, debugger::PausedReason::FunctionCall) {
+        if let Some(name) = data.and_then(|d| d.get("name")).and_then(|v| v.as_str())
+            && store.matching_symbolic(name).is_some()
+        {
+            return PauseReason::Instrumentation {
+                detail: instrumentation_detail(label, data, store),
+            };
+        }
+        return mapped;
+    }
+
+    PauseReason::Instrumentation {
+        detail: instrumentation_detail(label, data, store),
     }
 }
 

@@ -11,6 +11,7 @@
 mod app;
 mod attach;
 mod fixture_seed;
+mod phase2_wiring;
 mod session_host;
 mod snapshot;
 mod support;

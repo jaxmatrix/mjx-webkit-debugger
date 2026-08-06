@@ -8,6 +8,8 @@
 
 use std::collections::HashSet;
 
+use egui::{ScrollArea, Vec2};
+
 use crate::{Action, PanelCtx};
 use mjx_wk_source::{SourceId, SourceTreeNode};
 
@@ -34,7 +36,6 @@ pub struct SourceTree {
 }
 
 /// One row in the virtualised list.
-#[allow(dead_code)] // fields are painted by the virtualised ui commit
 #[derive(Debug, Clone)]
 enum FlatRow {
     Group {
@@ -95,10 +96,90 @@ impl SourceTree {
         tree: &SourceTreeNode,
         selected: Option<SourceId>,
     ) -> Vec<Action> {
-        // Row model first; painting lands in the next commit.
-        let _ = (ui, ctx, selected);
         self.rebuild_rows(tree);
-        Vec::new()
+
+        let row_height = ctx.theme.row_height;
+        let indent_width = ctx.theme.indent_width;
+        let text_color = ctx.theme.text;
+        let text_dim = ctx.theme.text_dim;
+        let accent = ctx.theme.accent;
+        let panel = ctx.theme.panel;
+
+        // `show_rows` adds `item_spacing.y` to the stride; zero it so the theme
+        // row height is the true pitch and virtualisation math stays exact.
+        ui.spacing_mut().item_spacing.y = 0.0;
+
+        let mut toggled: Vec<GroupKey> = Vec::new();
+        let mut opened: Vec<SourceId> = Vec::new();
+        let total_rows = self.rows.len();
+
+        ScrollArea::vertical()
+            .id_salt("mjx_source_tree")
+            .auto_shrink([false, false])
+            .show_rows(ui, row_height, total_rows, |ui, row_range| {
+                for row_idx in row_range {
+                    let Some(row) = self.rows.get(row_idx) else {
+                        break;
+                    };
+                    let indent = indent_width * f32::from(row.depth());
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
+                        match row {
+                            FlatRow::Group {
+                                key,
+                                label,
+                                is_expanded,
+                                ..
+                            } => {
+                                let marker = if *is_expanded { '▾' } else { '▸' };
+                                let text = format!("{marker} {label}");
+                                let response = ui.add(
+                                    egui::Button::new(
+                                        egui::RichText::new(text).color(text_dim),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE)
+                                    .min_size(Vec2::new(0.0, row_height)),
+                                );
+                                if response.clicked() {
+                                    toggled.push(key.clone());
+                                }
+                            }
+                            FlatRow::Leaf { id, label, .. } => {
+                                let is_sel = selected == Some(*id);
+                                let color = if is_sel { accent } else { text_color };
+                                let fill = if is_sel {
+                                    panel
+                                } else {
+                                    egui::Color32::TRANSPARENT
+                                };
+                                let response = ui.add(
+                                    egui::Button::new(
+                                        egui::RichText::new(label.as_str()).color(color),
+                                    )
+                                    .fill(fill)
+                                    .stroke(egui::Stroke::NONE)
+                                    .min_size(Vec2::new(0.0, row_height)),
+                                );
+                                if response.clicked() {
+                                    opened.push(*id);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+
+        for key in toggled {
+            if !self.expanded.remove(&key) {
+                self.expanded.insert(key);
+            }
+        }
+
+        opened
+            .into_iter()
+            .map(|id| Action::OpenSource(id, None))
+            .collect()
     }
 
     fn rebuild_rows(&mut self, tree: &SourceTreeNode) {
@@ -113,6 +194,14 @@ impl SourceTree {
             &mut self.live_keys,
         );
         self.expanded.retain(|k| self.live_keys.contains(k));
+    }
+}
+
+impl FlatRow {
+    fn depth(&self) -> u16 {
+        match self {
+            Self::Group { depth, .. } | Self::Leaf { depth, .. } => *depth,
+        }
     }
 }
 

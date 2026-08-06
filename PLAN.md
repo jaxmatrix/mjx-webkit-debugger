@@ -21,19 +21,20 @@ protocol allows it, and that **cannot be taken down by the program it is debuggi
 
 ## Release gates
 
-- **v0.1.0 — Phase 1: a working source browser.**
+- **v0.1.0 — Phase 1: a working source browser.** ✅ *done* (tagged `v0.1.0`).
   - *1a — seam freeze.* ✅ *done.* Workspace and 17 crates compiling; the complete `docs/SEAMS.md`
     landed as real Rust; `mjx-wk-protocol` generated from WebKit's descriptions (27 modules, 26
     domains, 239 commands, 110 events) with the output committed; `Transport`/`Dialect`/`DomainAgent`/
     `Panel` traits; a fully working `ReplayTransport` and `WebKitDialect`; the `xtask` recorder,
     codegen, and both verifiers; CI; all guidance docs; task files for every phase.
-  - *1b — the source browser.* Attach to a running WebKitGTK app, discover targets, inventory every
-    script and resource, fetch and cache source, virtualised syntax-highlighted code view, file
-    tree, search, pretty-print. Ten parallel tasks, T-001…T-010.
-- **v0.2.0 — Phase 2: a working debugger.** Breakpoints (line, conditional, logpoint, DOM, event,
-  XHR, exception, symbolic) with WebKit breakpoint actions and probes; stepping; call stack with
-  async frames; lazy paginated scope and variable tree; watch expressions; evaluate-on-call-frame;
-  source maps; blackboxing; the console panel.
+  - *1b — the source browser.* ✅ *done.* Attach to a running WebKitGTK app, discover targets,
+    inventory every script and resource, fetch and cache source, virtualised syntax-highlighted
+    code view, file tree, search, pretty-print. Tasks T-000…T-015.
+- **v0.2.0 — Phase 2: a working debugger.** *in progress.* Breakpoints (line, conditional,
+  logpoint, DOM, event, XHR, exception, symbolic) with WebKit breakpoint actions and probes;
+  stepping; call stack with async frames; lazy paginated scope and variable tree; watch
+  expressions; evaluate-on-call-frame; source maps; blackboxing; the console panel. Tasks
+  T-201…T-207.
 - **v0.3.0 — Phase 3: Apple platforms and network.** `AppleLocalTransport` (macOS `webinspectord`)
   and `AppleUsbTransport` (iOS ≤16) — debug Tauri apps on macOS and iOS — plus the Network panel:
   waterfall, timing, headers and bodies, WebSocket frames, HAR export, interception. Includes the
@@ -68,5 +69,5 @@ Phases 3–7 are L4 peers and can run in parallel once Phase 1 lands.
 
 ## Versioning
 
-Pre-release `v0.0.x` until Phase 1b completes. Each release gate above advances the minor version.
-The public API is not stable before `v1.0`.
+Phase 1 shipped as `v0.1.0`. Each release gate above advances the minor version. The public API is
+not stable before `v1.0`.

@@ -4,10 +4,10 @@ A native debugger for WebKit programs. Attaches to an already-running WebKit app
 Remote Inspector protocol and gives a Chrome-DevTools-grade experience — browse every source file,
 set breakpoints, pause, inspect state — **without embedding a webview itself**.
 
-> **Status: Phase 1 — source browser.** The app attaches to a running WebKitGTK inspector server,
-> lists targets, browses sources (live or via fixture replay), and ships multi-arch release
-> binaries. Breakpoints, pause/step, and the rest of Chrome parity are still ahead — see
-> [`PLAN.md`](PLAN.md) and [`docs/CHROME-PARITY.md`](docs/CHROME-PARITY.md).
+> **Status: Phase 1 done (`v0.1.0`); Phase 2 in progress — debugger.** The app attaches to a
+> running WebKitGTK inspector server, lists targets, browses sources (live or via fixture replay),
+> and ships multi-arch release binaries. Breakpoints, pause/step, variables, and console are the
+> current work — see [`PLAN.md`](PLAN.md) and [`docs/CHROME-PARITY.md`](docs/CHROME-PARITY.md).
 
 ## Why not just use Web Inspector?
 

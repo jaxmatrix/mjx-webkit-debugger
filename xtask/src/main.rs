@@ -1,9 +1,10 @@
-//! Repo tooling: protocol codegen, fixture recording, and invariant checks.
+//! Repo tooling: protocol codegen, fixture recording, perf benches, and invariant checks.
 //!
 //! `xtask` ships nothing. It is a workspace member so that `cargo run -p xtask`
 //! works without installing anything, and it is never a dependency of a crate
 //! that does ship.
 
+mod bench;
 mod codegen;
 mod record;
 mod verify;
@@ -54,6 +55,13 @@ enum Command {
 
     /// Record a protocol trace from a live debuggee into `fixtures/`.
     Record(record::RecordArgs),
+
+    /// Run performance budget benches (operation-count gates from `mjx-wk-perf`).
+    ///
+    /// Discovers workspace `[[bench]]` targets, including peer-owned ones such
+    /// as T-005's `text` when present, and fails if any required CLAUDE.md
+    /// budget regresses.
+    Bench,
 }
 
 fn main() -> Result<()> {
@@ -73,6 +81,7 @@ fn main() -> Result<()> {
         Command::VerifyNoWebview => verify::no_webview(&root),
         Command::VerifyFixtures => verify::fixtures(&root),
         Command::Record(args) => record::run(&root, args),
+        Command::Bench => bench::run(&root),
     }
 }
 

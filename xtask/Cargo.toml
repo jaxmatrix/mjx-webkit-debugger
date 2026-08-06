@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 mjx-wk-transport = { workspace = true }
+mjx-wk-perf = { workspace = true }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

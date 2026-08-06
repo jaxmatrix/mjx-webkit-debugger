@@ -26,6 +26,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 mjx-wk-perf = { workspace = true }
+mjx-wk-transport = { workspace = true }
 
 [[bench]]
 name = "pause"

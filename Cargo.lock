@@ -2223,6 +2223,7 @@ dependencies = [
  "mjx-wk-protocol",
  "mjx-wk-session",
  "mjx-wk-source",
+ "mjx-wk-transport",
  "serde",
  "serde_json",
  "thiserror 2.0.19",

@@ -58,22 +58,25 @@ Later phases add tabs (Network, Performance, Elements, Application), never new c
 
 Defined in `crates/mjx-wk-ui/src/theme.rs` as `Theme`. **Widgets never write a literal colour.**
 
+Values below are the committed contract for `Theme::dark` / `Theme::light`. Change the table and
+the Rust in the same commit.
+
 ### Surfaces
 
-| Token | Role |
-|---|---|
-| `background` | the window |
-| `panel` | a docked panel's body |
-| `gutter` | the code view's left margin |
-| `hairline` | the single-pixel rule that separates regions — the only border we draw |
+| Token | Role | Dark | Light |
+|---|---|---|---|
+| `background` | the window | `#1e1e1e` | `#ffffff` |
+| `panel` | a docked panel's body | `#252526` | `#f3f3f3` |
+| `gutter` | the code view's left margin | `#1e1e1e` | `#f3f3f3` |
+| `hairline` | the single-pixel rule that separates regions — the only border we draw | `#3c3c3c` | `#d4d4d4` |
 
 ### Text
 
-| Token | Role |
-|---|---|
-| `text` | primary |
-| `text_dim` | secondary: line numbers, inactive rows, inherited rules |
-| `accent` | selection and focus |
+| Token | Role | Dark | Light |
+|---|---|---|---|
+| `text` | primary | `#d4d4d4` | `#1e1e1e` |
+| `text_dim` | secondary: line numbers, inactive rows, inherited rules | `#858585` | `#6e6e6e` |
+| `accent` | selection and focus | `#3794ff` | `#0066da` |
 
 ### Syntax
 
@@ -81,23 +84,42 @@ Defined in `crates/mjx-wk-ui/src/theme.rs` as `Theme`. **Widgets never write a l
 `syntax_type`, `syntax_property`, `syntax_tag`. Mapped from `mjx_wk_source::HighlightKind` by
 `Theme::syntax`; a widget never matches on `HighlightKind` itself.
 
+| Token | Dark | Light |
+|---|---|---|
+| `syntax_keyword` | `#569cd6` | `#0000ff` |
+| `syntax_string` | `#ce9178` | `#a31515` |
+| `syntax_number` | `#b5cea8` | `#098658` |
+| `syntax_comment` | `#6a9955` | `#008000` |
+| `syntax_function` | `#dcdcaa` | `#795e26` |
+| `syntax_type` | `#4ec9b0` | `#267f99` |
+| `syntax_property` | `#9cdcfe` | `#001e80` |
+| `syntax_tag` | `#569cd6` | `#800000` |
+
 ### Debugger states
 
 These carry meaning and must stay visually distinct at a glance:
 
-| Token | Meaning |
-|---|---|
-| `breakpoint_resolved` | bound to real code; it will hit |
-| `breakpoint_pending` | set, but no matching script has parsed — may never hit |
-| `breakpoint_conditional` | has a condition |
-| `breakpoint_logpoint` | logs or probes and continues; never stops |
-| `execution_line` | where execution is stopped — **not a breakpoint, must not look like one** |
+| Token | Meaning | Dark | Light |
+|---|---|---|---|
+| `breakpoint_resolved` | bound to real code; it will hit | `#e51400` | `#e51400` |
+| `breakpoint_pending` | set, but no matching script has parsed — may never hit | `#e51400` (hollow) | `#e51400` (hollow) |
+| `breakpoint_conditional` | has a condition | `#f5a623` | `#d48600` |
+| `breakpoint_logpoint` | logs or probes and continues; never stops | `#9b59b6` | `#8e44ad` |
+| `execution_line` | where execution is stopped — **not a breakpoint, must not look like one** | `#c6c600` | `#b0b000` |
+
+A `BreakpointMark::Disabled` mark reuses `text_dim` (shape still distinct; not a hot state colour).
 
 ### Metrics
 
-`row_height`, `gutter_width`, `indent_width`, `monospace_size`. Row height is **fixed**: the code
-view sizes its scroll area as `line_count × row_height` rather than measuring text, which is what
-lets a 200 000-line file scroll without laying it out.
+| Token | Value | Notes |
+|---|---|---|
+| `row_height` | `18.0` | fixed; scroll size is `line_count × row_height` |
+| `gutter_width` | `72.0` | mark + line number + hairline |
+| `indent_width` | `16.0` | tree indent per level |
+| `monospace_size` | `13.0` | code and dense values |
+
+Row height is **fixed**: the code view sizes its scroll area as `line_count × row_height` rather
+than measuring text, which is what lets a 200 000-line file scroll without laying it out.
 
 ## The code view
 

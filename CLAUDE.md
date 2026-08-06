@@ -102,12 +102,17 @@ stopping), `setPauseOnMicrotasks`, `setPauseOnAssertions`, `addSymbolicBreakpoin
 
 ## Performance budgets (asserted by benches in CI)
 
-| Budget | Why |
-|---|---|
-| attach → source tree visible < 300 ms | the first thing anyone does |
-| 5 MB minified bundle scrolls at 60 fps | the case that breaks naive editors |
-| pause → first variable row < 100 ms | a debugger that stutters at a breakpoint is unusable |
-| no UI frame > 16 ms, ever | the non-negotiable one |
+Thresholds live in [`crates/mjx-wk-perf`](crates/mjx-wk-perf). CI runs
+`cargo run -p xtask -- bench` on a single Ubuntu runner and fails on regression.
+Wall-clock numbers below are the product claim; CI asserts **operation counts**
+derived from them (except T-005's `text` bench, which still uses wall-clock).
+
+| Budget | Why | Enforced by |
+|---|---|---|
+| attach → source tree visible < 300 ms | the first thing anyone does | [`mjx-wk-session/benches/attach.rs`](crates/mjx-wk-session/benches/attach.rs) |
+| 5 MB minified bundle scrolls at 60 fps | the case that breaks naive editors | [`mjx-wk-ui/benches/scroll.rs`](crates/mjx-wk-ui/benches/scroll.rs) (+ [`text.rs`](crates/mjx-wk-source/benches/text.rs) for indexing) |
+| pause → first variable row < 100 ms | a debugger that stutters at a breakpoint is unusable | [`mjx-wk-debug/benches/pause.rs`](crates/mjx-wk-debug/benches/pause.rs) |
+| no UI frame > 16 ms, ever | the non-negotiable one | [`mjx-wk-ui/benches/frame.rs`](crates/mjx-wk-ui/benches/frame.rs) |
 
 ## Settled implementation choices
 
@@ -130,6 +135,7 @@ cargo fmt --all
 cargo run -p xtask -- codegen            # regenerate protocol types (needs reference/)
 cargo run -p xtask -- verify-protocol    # generated types vs the installed WebKit
 cargo run -p xtask -- verify-no-webview  # the architectural rule, enforced
+cargo run -p xtask -- bench              # CLAUDE.md perf budgets (fails on regression)
 cargo run -p xtask -- record --scenario attach --out fixtures/attach.jsonl
 ```
 

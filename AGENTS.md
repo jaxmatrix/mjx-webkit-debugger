@@ -67,5 +67,6 @@ cargo clippy  --workspace --all-targets -- -D warnings
 cargo run -p xtask -- codegen            # regenerate protocol types (needs reference/)
 cargo run -p xtask -- verify-protocol    # generated types vs the installed WebKit
 cargo run -p xtask -- verify-no-webview  # the architectural rule, enforced
+cargo run -p xtask -- bench              # CLAUDE.md perf budgets (fails on regression)
 cargo run -p xtask -- record --scenario attach --out fixtures/attach.jsonl
 ```

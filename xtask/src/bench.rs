@@ -89,15 +89,15 @@ pub fn run(root: &Path) -> Result<()> {
     println!("running {} bench target(s)", to_run.len());
     let mut failed = Vec::new();
     for (package, bench) in &to_run {
-        println!("── cargo test -p {package} --bench {bench}");
-        // Assertion benches (harness = false) are run via `cargo test --bench`
-        // so they share the debug/test artifact graph. `cargo bench` would
-        // rebuild under the bench profile and thrash CI for no timing gain.
+        // Use `cargo bench` (profile.bench: release opts, no thin LTO) so
+        // peer wall-clock benches such as T-005 `text` stay meaningful, while
+        // our op-count gates still fail the process on threshold breach.
+        println!("── cargo bench -p {package} --bench {bench}");
         let status = Command::new(env!("CARGO"))
             .current_dir(root)
-            .args(["test", "-p", package, "--bench", bench, "--", "--nocapture"])
+            .args(["bench", "-p", package, "--bench", bench])
             .status()
-            .with_context(|| format!("spawning cargo test --bench for {package}/{bench}"))?;
+            .with_context(|| format!("spawning cargo bench for {package}/{bench}"))?;
         if !status.success() {
             failed.push(format!("{package}/{bench}"));
         }

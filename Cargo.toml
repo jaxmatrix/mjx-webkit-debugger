@@ -50,6 +50,7 @@ unwrap_used = "warn"
 expect_used = "warn"
 
 [workspace.dependencies]
+regex = "1.11.1"
 mjx-wk-protocol = { path = "crates/mjx-wk-protocol" }
 mjx-wk-dialect = { path = "crates/mjx-wk-dialect" }
 mjx-wk-transport = { path = "crates/mjx-wk-transport" }

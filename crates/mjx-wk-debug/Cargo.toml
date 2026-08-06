@@ -12,6 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+regex.workspace = true
 mjx-wk-protocol.workspace = true
 mjx-wk-dialect.workspace = true
 mjx-wk-session.workspace = true

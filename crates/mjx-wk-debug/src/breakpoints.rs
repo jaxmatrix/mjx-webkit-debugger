@@ -1,10 +1,11 @@
 //! The breakpoint model.
 //!
-//! **Owned by `docs/tasks/T-201-breakpoints.md`.**
+//! Line kinds and the store shell: **`docs/tasks/T-201-breakpoints.md`.**
+//! Non-line kinds (DOM / event / URL / symbolic): **`docs/tasks/T-206-dom-debugger-breakpoints.md`.**
 
 use std::collections::HashMap;
 
-use mjx_wk_source::{SourceId, SourceLocation};
+use mjx_wk_source::{NodeId, SourceId, SourceLocation};
 use serde::{Deserialize, Serialize};
 
 /// The debuggee's identifier for a set breakpoint.
@@ -110,12 +111,19 @@ pub struct Breakpoint {
 /// view so [`Self::in_source`] is a slice return with no allocation — the gutter
 /// calls it every frame.
 ///
+/// Non-line kinds (T-206) live in their own lists — they have no source line and
+/// must not pollute the gutter index.
+///
 /// Cloned into each [`crate::DebugModel`] snapshot: breakpoints are few, and a
 /// pointer-sized `Arc` of the model is what the UI thread reads.
 #[derive(Debug, Default, Clone)]
 pub struct BreakpointStore {
     all: Vec<Breakpoint>,
     by_source: HashMap<SourceId, Vec<Breakpoint>>,
+    dom: Vec<DomBreakpoint>,
+    event: Vec<EventBreakpoint>,
+    url: Vec<UrlBreakpoint>,
+    symbolic: Vec<SymbolicBreakpoint>,
 }
 
 impl BreakpointStore {
@@ -132,7 +140,7 @@ impl BreakpointStore {
             .unwrap_or(&[])
     }
 
-    /// Every breakpoint, for the breakpoint list panel.
+    /// Every line breakpoint, for the breakpoint list panel.
     pub fn all(&self) -> &[Breakpoint] {
         &self.all
     }
@@ -218,12 +226,113 @@ impl BreakpointStore {
             self.by_source.entry(source).or_default().push(bp.clone());
         }
     }
+
+    // --- Non-line kinds (T-206) -------------------------------------------
+
+    /// DOM change breakpoints.
+    pub fn dom(&self) -> &[DomBreakpoint] {
+        &self.dom
+    }
+
+    /// Event listener / timer / animation-frame breakpoints.
+    pub fn event(&self) -> &[EventBreakpoint] {
+        &self.event
+    }
+
+    /// XHR/fetch URL breakpoints.
+    pub fn url(&self) -> &[UrlBreakpoint] {
+        &self.url
+    }
+
+    /// Function-name (symbolic) breakpoints.
+    pub fn symbolic(&self) -> &[SymbolicBreakpoint] {
+        &self.symbolic
+    }
+
+    /// Remember a DOM breakpoint locally. Returns `false` on duplicate.
+    pub fn insert_dom(&mut self, bp: DomBreakpoint) -> bool {
+        if self.dom.iter().any(|existing| existing == &bp) {
+            return false;
+        }
+        self.dom.push(bp);
+        true
+    }
+
+    /// Drop a DOM breakpoint after a successful `removeDOMBreakpoint`.
+    pub fn remove_dom(&mut self, bp: &DomBreakpoint) -> bool {
+        let before = self.dom.len();
+        self.dom.retain(|existing| existing != bp);
+        self.dom.len() != before
+    }
+
+    /// Drop every DOM breakpoint on a node that no longer exists.
+    ///
+    /// A `node-removed` pause makes the debuggee's `nodeId` useless; leaving the
+    /// entry would show a dangling row that can never fire again.
+    pub fn cleanup_dom_node(&mut self, node: NodeId) -> usize {
+        let before = self.dom.len();
+        self.dom.retain(|bp| bp.node != node);
+        before - self.dom.len()
+    }
+
+    /// Remember an event breakpoint locally. Returns `false` on duplicate.
+    pub fn insert_event(&mut self, bp: EventBreakpoint) -> bool {
+        if self.event.iter().any(|existing| existing == &bp) {
+            return false;
+        }
+        self.event.push(bp);
+        true
+    }
+
+    /// Drop an event breakpoint locally.
+    pub fn remove_event(&mut self, bp: &EventBreakpoint) -> bool {
+        let before = self.event.len();
+        self.event.retain(|existing| existing != bp);
+        self.event.len() != before
+    }
+
+    /// Remember a URL breakpoint locally. Returns `false` on duplicate.
+    pub fn insert_url(&mut self, bp: UrlBreakpoint) -> bool {
+        if self.url.iter().any(|existing| existing == &bp) {
+            return false;
+        }
+        self.url.push(bp);
+        true
+    }
+
+    /// Drop a URL breakpoint locally.
+    pub fn remove_url(&mut self, bp: &UrlBreakpoint) -> bool {
+        let before = self.url.len();
+        self.url.retain(|existing| existing != bp);
+        self.url.len() != before
+    }
+
+    /// Remember a symbolic breakpoint locally. Returns `false` on duplicate.
+    pub fn insert_symbolic(&mut self, bp: SymbolicBreakpoint) -> bool {
+        if self.symbolic.iter().any(|existing| existing == &bp) {
+            return false;
+        }
+        self.symbolic.push(bp);
+        true
+    }
+
+    /// Drop a symbolic breakpoint locally.
+    pub fn remove_symbolic(&mut self, bp: &SymbolicBreakpoint) -> bool {
+        let before = self.symbolic.len();
+        self.symbolic.retain(|existing| existing != bp);
+        self.symbolic.len() != before
+    }
+
+    /// First symbolic breakpoint that matches `name`, honouring regex/case.
+    pub fn matching_symbolic(&self, name: &str) -> Option<&SymbolicBreakpoint> {
+        self.symbolic.iter().find(|bp| bp.matches(name))
+    }
 }
 
 /// Pause when the DOM changes. `DOMDebugger.setDOMBreakpoint`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DomBreakpoint {
-    pub node: mjx_wk_source::NodeId,
+    pub node: NodeId,
     pub kind: DomBreakpointKind,
 }
 
@@ -236,6 +345,27 @@ pub enum DomBreakpointKind {
     AttributeModified,
     /// The node itself was removed.
     NodeRemoved,
+}
+
+impl DomBreakpointKind {
+    /// Wire string for `DOMDebugger.setDOMBreakpoint` / pause `data.type`.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::SubtreeModified => "subtree-modified",
+            Self::AttributeModified => "attribute-modified",
+            Self::NodeRemoved => "node-removed",
+        }
+    }
+
+    /// Parse a pause-data / protocol type string.
+    pub fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "subtree-modified" => Some(Self::SubtreeModified),
+            "attribute-modified" => Some(Self::AttributeModified),
+            "node-removed" => Some(Self::NodeRemoved),
+            _ => None,
+        }
+    }
 }
 
 /// Pause when an event fires. `DOMDebugger.setEventBreakpoint`.
@@ -265,6 +395,83 @@ pub struct SymbolicBreakpoint {
     pub symbol: String,
     pub case_sensitive: bool,
     pub is_regex: bool,
+}
+
+impl SymbolicBreakpoint {
+    /// Whether `name` matches this breakpoint's symbol, regex, and case options.
+    ///
+    /// Mirrors WebKit's `SymbolicBreakpoint::matches`: exact or regex, optional
+    /// case folding. An invalid regex never matches (and never panics).
+    pub fn matches(&self, name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        if self.is_regex {
+            let mut builder = regex::RegexBuilder::new(&self.symbol);
+            builder.case_insensitive(!self.case_sensitive);
+            match builder.build() {
+                Ok(re) => re.is_match(name),
+                Err(_) => false,
+            }
+        } else if self.case_sensitive {
+            name == self.symbol
+        } else {
+            name.eq_ignore_ascii_case(&self.symbol)
+        }
+    }
+}
+
+/// Human-readable "why did it stop?" for an instrumentation pause.
+///
+/// The UI shows this string the moment execution stops — it is the only answer
+/// that matters then. Pulls type / event / URL / symbol out of pause `data`
+/// when present; otherwise falls back to the protocol reason label.
+pub fn instrumentation_detail(
+    reason_label: &str,
+    data: Option<&serde_json::Value>,
+    store: &BreakpointStore,
+) -> String {
+    let data = data.unwrap_or(&serde_json::Value::Null);
+    match reason_label {
+        "DOM" => {
+            let kind = data.get("type").and_then(|v| v.as_str()).unwrap_or("DOM");
+            match data.get("nodeId").and_then(|v| v.as_i64()) {
+                Some(id) => format!("DOM {kind} on node {id}"),
+                None => format!("DOM {kind}"),
+            }
+        }
+        "Listener" | "AnimationFrame" | "Interval" | "Timeout" => {
+            if let Some(name) = data.get("eventName").and_then(|v| v.as_str()) {
+                format!("{reason_label} {name}")
+            } else {
+                reason_label.to_owned()
+            }
+        }
+        "URL" => {
+            if let Some(pattern) = data
+                .get("breakpointURL")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                format!("URL matching {pattern}")
+            } else if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
+                format!("URL {url}")
+            } else {
+                "URL".into()
+            }
+        }
+        "FunctionCall" => {
+            if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+                if store.matching_symbolic(name).is_some() {
+                    return format!("Symbolic {name}");
+                }
+                format!("FunctionCall {name}")
+            } else {
+                "FunctionCall".into()
+            }
+        }
+        other => other.to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -350,5 +557,140 @@ mod tests {
         assert!(store.in_source(SourceId(99)).is_empty());
         assert!(store.in_source(SourceId(99)).is_empty());
         assert!(store.by_source.is_empty());
+    }
+
+    #[test]
+    fn non_line_kinds_set_and_remove_cleanly() {
+        let mut store = BreakpointStore::new();
+        let dom = DomBreakpoint {
+            node: NodeId(7),
+            kind: DomBreakpointKind::SubtreeModified,
+        };
+        assert!(store.insert_dom(dom.clone()));
+        assert!(!store.insert_dom(dom.clone()));
+        assert_eq!(store.dom().len(), 1);
+        assert!(store.remove_dom(&dom));
+        assert!(store.dom().is_empty());
+
+        let event = EventBreakpoint {
+            category: "listener".into(),
+            name: Some("click".into()),
+        };
+        assert!(store.insert_event(event.clone()));
+        assert!(store.remove_event(&event));
+
+        let url = UrlBreakpoint {
+            pattern: "api/".into(),
+            is_regex: false,
+        };
+        assert!(store.insert_url(url.clone()));
+        assert!(store.remove_url(&url));
+
+        let sym = SymbolicBreakpoint {
+            symbol: "computeTotal".into(),
+            case_sensitive: true,
+            is_regex: false,
+        };
+        assert!(store.insert_symbolic(sym.clone()));
+        assert!(store.remove_symbolic(&sym));
+        assert!(store.symbolic().is_empty());
+        // Line APIs untouched.
+        assert!(store.all().is_empty());
+    }
+
+    #[test]
+    fn cleanup_dom_node_drops_all_kinds_for_that_node() {
+        let mut store = BreakpointStore::new();
+        store.insert_dom(DomBreakpoint {
+            node: NodeId(1),
+            kind: DomBreakpointKind::SubtreeModified,
+        });
+        store.insert_dom(DomBreakpoint {
+            node: NodeId(1),
+            kind: DomBreakpointKind::NodeRemoved,
+        });
+        store.insert_dom(DomBreakpoint {
+            node: NodeId(2),
+            kind: DomBreakpointKind::AttributeModified,
+        });
+        assert_eq!(store.cleanup_dom_node(NodeId(1)), 2);
+        assert_eq!(store.dom().len(), 1);
+        assert_eq!(store.dom()[0].node, NodeId(2));
+    }
+
+    #[test]
+    fn symbolic_honours_regex_and_case_options() {
+        let exact = SymbolicBreakpoint {
+            symbol: "Foo".into(),
+            case_sensitive: true,
+            is_regex: false,
+        };
+        assert!(exact.matches("Foo"));
+        assert!(!exact.matches("foo"));
+
+        let folded = SymbolicBreakpoint {
+            symbol: "Foo".into(),
+            case_sensitive: false,
+            is_regex: false,
+        };
+        assert!(folded.matches("foo"));
+        assert!(folded.matches("FOO"));
+
+        let re = SymbolicBreakpoint {
+            symbol: r"^on\w+$".into(),
+            case_sensitive: true,
+            is_regex: true,
+        };
+        assert!(re.matches("onClick"));
+        assert!(!re.matches("click"));
+
+        let re_ci = SymbolicBreakpoint {
+            symbol: r"^foo$".into(),
+            case_sensitive: false,
+            is_regex: true,
+        };
+        assert!(re_ci.matches("FOO"));
+    }
+
+    #[test]
+    fn instrumentation_detail_names_which_breakpoint_fired() {
+        let mut store = BreakpointStore::new();
+        store.insert_symbolic(SymbolicBreakpoint {
+            symbol: "computeTotal".into(),
+            case_sensitive: true,
+            is_regex: false,
+        });
+        assert_eq!(
+            instrumentation_detail(
+                "DOM",
+                Some(&serde_json::json!({"type": "node-removed", "nodeId": 42})),
+                &store
+            ),
+            "DOM node-removed on node 42"
+        );
+        assert_eq!(
+            instrumentation_detail(
+                "Listener",
+                Some(&serde_json::json!({"eventName": "click"})),
+                &store
+            ),
+            "Listener click"
+        );
+        assert_eq!(
+            instrumentation_detail(
+                "URL",
+                Some(&serde_json::json!({"breakpointURL": "api/", "url": "https://x/api/1"})),
+                &store
+            ),
+            "URL matching api/"
+        );
+        assert_eq!(
+            instrumentation_detail(
+                "FunctionCall",
+                Some(&serde_json::json!({"name": "computeTotal"})),
+                &store
+            ),
+            "Symbolic computeTotal"
+        );
     }
 }

@@ -27,3 +27,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[[bench]]
+name = "text"
+harness = false

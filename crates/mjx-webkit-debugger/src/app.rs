@@ -30,6 +30,7 @@ use mjx_wk_dialect::Support;
 use mjx_wk_protocol::Domain;
 use mjx_wk_source::highlight::TreeSitterHighlighter;
 use mjx_wk_source::{Highlighter, SourceTreeNode};
+use mjx_wk_ui::breakpoint_list::{BreakpointList, BreakpointListModel};
 use mjx_wk_ui::call_stack::CallStackList;
 use mjx_wk_ui::code_view::{BreakpointMark, CodeView, CodeViewModel};
 use mjx_wk_ui::console_view::ConsoleView;
@@ -64,6 +65,7 @@ enum Tab {
     Code,
     CallStack,
     Variables,
+    Breakpoints,
     Console,
     /// Demonstrates "disabled with a reason" for an unsupported panel.
     Network,
@@ -76,6 +78,7 @@ impl Tab {
             Tab::Code => "Code",
             Tab::CallStack => "Call stack",
             Tab::Variables => "Variables",
+            Tab::Breakpoints => "Breakpoints",
             Tab::Console => "Console",
             Tab::Network => "Network",
         }
@@ -95,6 +98,7 @@ pub struct App {
     code_view: CodeView,
     call_stack: CallStackList,
     variables: VariablesTree,
+    breakpoints: BreakpointList,
     console: ConsoleView,
     highlighter: TreeSitterHighlighter,
     /// Cached highlight lines for the last painted window.
@@ -155,7 +159,8 @@ impl App {
             let surface = dock.main_surface_mut();
             let [_sources, code] = surface.split_right(NodeIndex::root(), 0.22, vec![Tab::Code]);
             let [code, right] = surface.split_right(code, 0.62, vec![Tab::CallStack]);
-            let [_stack, _vars] = surface.split_below(right, 0.45, vec![Tab::Variables]);
+            let [stack, _vars] = surface.split_below(right, 0.45, vec![Tab::Variables]);
+            surface[stack].append_tab(Tab::Breakpoints);
             let [code, _console] = surface.split_below(code, 0.72, vec![Tab::Console]);
             surface[code].append_tab(Tab::Network);
         }
@@ -170,6 +175,7 @@ impl App {
             code_view: CodeView::new(),
             call_stack: CallStackList::new(),
             variables: VariablesTree::new(),
+            breakpoints: BreakpointList::new(),
             console: ConsoleView::new(),
             highlighter: TreeSitterHighlighter::new(),
             highlight_spans: Vec::new(),
@@ -239,6 +245,7 @@ impl eframe::App for App {
             code_view: &mut self.code_view,
             call_stack: &mut self.call_stack,
             variables: &mut self.variables,
+            breakpoints: &mut self.breakpoints,
             console: &mut self.console,
             highlighter: &mut self.highlighter,
             highlight_spans: &mut self.highlight_spans,
@@ -274,6 +281,7 @@ struct ShellTabViewer<'a> {
     code_view: &'a mut CodeView,
     call_stack: &'a mut CallStackList,
     variables: &'a mut VariablesTree,
+    breakpoints: &'a mut BreakpointList,
     console: &'a mut ConsoleView,
     highlighter: &'a mut TreeSitterHighlighter,
     highlight_spans: &'a mut Vec<Vec<mjx_wk_source::HighlightSpan>>,
@@ -403,6 +411,30 @@ impl TabViewer for ShellTabViewer<'_> {
                         ui.label(
                             "Unavailable: Runtime.getProperties is not supported on this target \
                              (not attached, wrong target kind, or dialect gap).",
+                        );
+                    });
+                }
+            }
+            Tab::Breakpoints => {
+                if let Some(debug) = self.debug {
+                    if let Some(reason) = &debug.disabled_reason {
+                        ui.add_enabled_ui(false, |ui| {
+                            ui.heading("Breakpoints");
+                            ui.label(reason);
+                        });
+                    } else {
+                        let model = BreakpointListModel {
+                            breakpoints: debug.breakpoints.all(),
+                            source_names: &[],
+                        };
+                        self.actions.extend(self.breakpoints.ui(ui, &ctx, &model));
+                    }
+                } else {
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.heading("Breakpoints");
+                        ui.label(
+                            "Unavailable: `Debugger.setBreakpointByUrl` is not supported on this \
+                             target (not attached, wrong target kind, or dialect gap).",
                         );
                     });
                 }

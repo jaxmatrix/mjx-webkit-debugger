@@ -74,13 +74,15 @@ mod tests {
         assert!(registry.active().contains(&"mjx-wk-console"));
 
         session
-            .call(mjx_wk_protocol::generated::debugger::commands::SetBreakpointByUrl {
-                line_number: 3,
-                url: None,
-                url_regex: Some(r".*app\.js".into()),
-                column_number: Some(0),
-                options: None,
-            })
+            .call(
+                mjx_wk_protocol::generated::debugger::commands::SetBreakpointByUrl {
+                    line_number: 3,
+                    url: None,
+                    url_regex: Some(r".*app\.js".into()),
+                    column_number: Some(0),
+                    options: None,
+                },
+            )
             .await
             .expect("setBreakpointByUrl");
         session

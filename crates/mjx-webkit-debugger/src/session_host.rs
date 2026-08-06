@@ -8,8 +8,8 @@ use std::thread;
 
 use mjx_wk_console::{ConsoleAgent, EvalTarget, evaluate};
 use mjx_wk_debug::{
-    BreakpointSpec, BreakpointUrl, DebugAgent, DebugModel, StepKind as DebugStepKind, ValueNodeId,
-    ValuePreview, ValueTree, values::PAGE_SIZE,
+    BreakpointAction, BreakpointActionKind, BreakpointSpec, BreakpointUrl, DebugAgent, DebugModel,
+    StepKind as DebugStepKind, ValueNodeId, ValuePreview, ValueTree, values::PAGE_SIZE,
 };
 use mjx_wk_dialect::{DialectKind, WebKitDialect};
 use mjx_wk_protocol::TargetType;
@@ -21,6 +21,7 @@ use mjx_wk_source::{SourceId, SourceInventory, SourceLocation, SourceStore, Sour
 use mjx_wk_transport::{
     Discovery, ReplayTransport, Target, TargetKey, TcpInspectorServer, TransportOrigin,
 };
+use mjx_wk_ui::breakpoint_list::{PROBE_ACTION_PREFIX, decode_breakpoint_action};
 use mjx_wk_ui::{Action, StepKind};
 use tokio::sync::mpsc;
 
@@ -586,6 +587,54 @@ async fn handle_action(action: Action, snapshot: &SharedSnapshot, state: &mut Ho
         Action::RemoveBreakpoint(loc) => {
             remove_breakpoint(loc, snapshot, state).await;
         }
+        Action::SetBreakpointCondition(loc, condition) => {
+            update_breakpoint_spec(loc, snapshot, state, |spec| {
+                spec.condition = condition;
+            })
+            .await;
+        }
+        Action::SetBreakpointAction(loc, data) => {
+            update_breakpoint_spec(loc, snapshot, state, |spec| {
+                spec.actions.clear();
+                spec.auto_continue = false;
+                if let Some(data) = data {
+                    let (is_probe, expr) = decode_breakpoint_action(&data);
+                    spec.auto_continue = true;
+                    spec.actions.push(BreakpointAction {
+                        kind: if is_probe {
+                            BreakpointActionKind::Probe
+                        } else {
+                            BreakpointActionKind::Log
+                        },
+                        data: Some(expr.to_owned()),
+                    });
+                    let _ = PROBE_ACTION_PREFIX; // documented host contract
+                }
+            })
+            .await;
+        }
+        Action::ContinueTo(loc) => {
+            if let Some(session) = &state.session {
+                let script_id = state
+                    .inventory
+                    .get(loc.source)
+                    .and_then(|e| e.script_id.clone())
+                    .unwrap_or_default();
+                let _ = session
+                    .call(debugger::commands::ContinueToLocation {
+                        location: debugger::Location {
+                            script_id,
+                            line_number: i64::from(loc.line),
+                            column_number: Some(i64::from(loc.column)),
+                        },
+                    })
+                    .await;
+            }
+            snapshot::update(snapshot, |s| {
+                s.status = format!("continue to {}:{}", loc.source, loc.line);
+                s.debug = state.debug.clone();
+            });
+        }
         Action::SetBreakpointsActive(active) => {
             if let Some(session) = &state.session {
                 let _ = session
@@ -816,6 +865,66 @@ fn remove_line_bp(
 
 async fn remove_breakpoint(loc: SourceLocation, snapshot: &SharedSnapshot, state: &mut HostState) {
     toggle_breakpoint(loc, snapshot, state).await;
+}
+
+/// Mutate a line breakpoint's spec in the published AgentSnapshot.
+///
+/// Full remove+re-set on the wire is left for a follow-up; the UI sees the
+/// updated condition / logpoint immediately via ArcSwap.
+async fn update_breakpoint_spec(
+    loc: SourceLocation,
+    snapshot: &SharedSnapshot,
+    state: &mut HostState,
+    mutate: impl FnOnce(&mut BreakpointSpec),
+) {
+    let Some(snap) = state.debug.clone() else {
+        snapshot::update(snapshot, |s| {
+            s.status = "breakpoint edit: debugger unavailable".into();
+        });
+        return;
+    };
+    let mut model = (**snap.load()).clone();
+    let Some(index) =
+        model.breakpoints.all().iter().position(|bp| {
+            bp.spec.location.source == loc.source && bp.spec.location.line == loc.line
+        })
+    else {
+        snapshot::update(snapshot, |s| {
+            s.status = format!("no breakpoint at {}:{}", loc.source, loc.line);
+        });
+        return;
+    };
+    let mut edited = model.breakpoints.all()[index].spec.clone();
+    mutate(&mut edited);
+    let mut next_store = mjx_wk_debug::BreakpointStore::new();
+    for (i, bp) in model.breakpoints.all().iter().enumerate() {
+        let spec = if i == index {
+            edited.clone()
+        } else {
+            bp.spec.clone()
+        };
+        let new_index = next_store.insert(spec);
+        if let Some(id) = bp.id.clone() {
+            next_store.set_id(new_index, id);
+        }
+        match &bp.state {
+            mjx_wk_debug::BreakpointState::Resolved { actual } => {
+                if let Some(id) = next_store.all().get(new_index).and_then(|b| b.id.clone()) {
+                    next_store.resolve(&id, *actual);
+                }
+            }
+            mjx_wk_debug::BreakpointState::Failed { reason } => {
+                next_store.fail(new_index, reason.clone());
+            }
+            mjx_wk_debug::BreakpointState::Disabled | mjx_wk_debug::BreakpointState::Pending => {}
+        }
+    }
+    model.breakpoints = next_store;
+    snap.store(Arc::new(model));
+    snapshot::update(snapshot, |s| {
+        s.status = format!("updated breakpoint {}:{}", loc.source, loc.line);
+        s.debug = state.debug.clone();
+    });
 }
 
 async fn step(kind: StepKind, snapshot: &SharedSnapshot, state: &mut HostState) {

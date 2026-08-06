@@ -145,15 +145,20 @@ pub mod ops {
     /// Rows a virtualised view may touch in one frame (visible + margin).
     pub const VISIBLE_ROWS_PER_FRAME: u64 = 48;
     pub const SCROLL_MARGIN_ROWS: u64 = 8;
-    /// Layout + gutter + clip work charged per touched row.
+    /// Layout + gutter work charged per touched row.
     pub const OPS_PER_ROW: u64 = 8;
+    /// Horizontal clip of a multi-MB minified line (once per frame, not per byte).
+    pub const MINIFIED_CLIP_OPS: u64 = 1;
+    /// Breakpoint/execution mark probe per touched row (UI frame budget).
+    pub const GUTTER_MARK_OPS_PER_ROW: u64 = 1;
 
-    /// Hard ceiling for one scroll/UI frame.
+    /// Hard ceiling for one scroll frame (rows + minified clip).
     pub const SCROLL_MAX_OPS_PER_FRAME: u64 =
-        (VISIBLE_ROWS_PER_FRAME + SCROLL_MARGIN_ROWS) * OPS_PER_ROW;
+        (VISIBLE_ROWS_PER_FRAME + SCROLL_MARGIN_ROWS) * OPS_PER_ROW + MINIFIED_CLIP_OPS;
 
-    /// Same absolute frame ceiling, named for the UI-frame budget.
-    pub const UI_FRAME_MAX_OPS: u64 = SCROLL_MAX_OPS_PER_FRAME;
+    /// Absolute UI frame ceiling: rows + gutter marks (no scroll clip).
+    pub const UI_FRAME_MAX_OPS: u64 =
+        (VISIBLE_ROWS_PER_FRAME + SCROLL_MARGIN_ROWS) * (OPS_PER_ROW + GUTTER_MARK_OPS_PER_ROW);
 
     /// A 300 ms hitch in the cost model — must fail, not merely report.
     pub const SCROLL_MAX_HITCH_OPS: u64 = (wall::SCROLL_HITCH_FAIL.as_nanos() as u64) / NS_PER_OP;
@@ -279,7 +284,7 @@ mod tests {
 
     #[test]
     fn hitch_ceiling_is_stricter_than_mean_only() {
-        assert!(ops::SCROLL_MAX_HITCH_OPS > ops::SCROLL_MAX_OPS_PER_FRAME);
+        const _: () = assert!(ops::SCROLL_MAX_HITCH_OPS > ops::SCROLL_MAX_OPS_PER_FRAME);
         assert_eq!(
             ops::SCROLL_MAX_HITCH_OPS,
             ops::ops_for(wall::SCROLL_HITCH_FAIL)

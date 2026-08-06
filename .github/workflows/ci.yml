@@ -40,6 +40,23 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  benches:
+    # One consistent Linux runner — budget benches prefer operation counts so a
+    # slow shared runner cannot flake the gate. See crates/mjx-wk-perf.
+    name: perf budgets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb1-dev \
+            libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Assert CLAUDE.md performance budgets
+        run: cargo run -p xtask -- bench
+
   docs:
     name: docs
     runs-on: ubuntu-latest

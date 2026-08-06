@@ -30,6 +30,10 @@ Two protocol paths, chosen by `SourceKind`:
 
 `SourceStore` in `mjx-wk-source`. Split out of T-005, which owns `SourceText`/`LineIndex`.
 
+`SourceStore::text` takes `&SourceEntry` (not a bare `SourceId`): the fetch path must choose
+`Debugger.getScriptSource` vs `Page.getResourceContent` from `kind` / `script_id` / `frame` /
+`url`. The cache stays keyed by `entry.id`.
+
 ## Owns
 
 - `crates/mjx-wk-source/src/store.rs`

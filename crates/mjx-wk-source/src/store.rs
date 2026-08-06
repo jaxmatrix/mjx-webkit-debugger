@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::{SourceError, SourceId, SourceText};
+use crate::{SourceEntry, SourceError, SourceId, SourceText};
 
 /// An LRU cache over fetched source text.
 #[derive(Debug)]
@@ -29,15 +29,18 @@ impl SourceStore {
         todo!("T-011")
     }
 
-    /// Text for a source, fetching it if it is not cached.
+    /// Fetch for a source, fetching it if it is not cached.
     ///
-    /// Concurrent calls for the same id must share one request. The source tree
-    /// and the editor routinely ask at the same moment, and fetching a 5 MB
-    /// bundle twice is a visible stall.
+    /// Takes a [`SourceEntry`] rather than a bare [`SourceId`]: choosing between
+    /// `Debugger.getScriptSource` and `Page.getResourceContent` needs
+    /// `kind` / `script_id` / `frame` / `url`. The cache remains keyed by
+    /// `entry.id`. Concurrent calls for the same id must share one request —
+    /// the source tree and the editor routinely ask at the same moment, and
+    /// fetching a 5 MB bundle twice is a visible stall.
     pub async fn text(
         &self,
         _session: &mjx_wk_session::SessionHandle,
-        _id: SourceId,
+        _entry: &SourceEntry,
     ) -> Result<Arc<SourceText>, SourceError> {
         todo!("T-011")
     }

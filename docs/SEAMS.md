@@ -121,7 +121,8 @@ lifetime, and does not exist for documents or stylesheets. A dense local id surv
 which is what keeps the user's open tab and breakpoints across a refresh.
 
 Also: `SourceInventory` (merges `scriptParsed` with `getResourceTree`), `SourceText` + `LineIndex`,
-`SourceStore`, `Highlighter`, `SourceMapResolver`, `PrettyPrinter`, `SearchIndex`.
+`SourceStore` (`text(session, &SourceEntry)` — fetch path needs kind/script_id/frame/url; cache
+keyed by `SourceId`), `Highlighter`, `SourceMapResolver`, `PrettyPrinter`, `SearchIndex`.
 
 ## L4 · feature crates — one `DomainAgent` and one model each
 

@@ -21,6 +21,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mjx_wk_dialect::NormalizedFrame;
 use mjx_wk_protocol::Domain;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::{SessionError, SessionHandle};
 
@@ -78,29 +80,120 @@ pub trait DomainAgent: Send + std::fmt::Debug + 'static {
 /// to.
 #[derive(Debug, Default)]
 pub struct AgentRegistry {
-    _private: (),
+    active: Vec<&'static str>,
+    tasks: Vec<JoinHandle<()>>,
 }
 
 impl AgentRegistry {
     /// An empty registry.
     pub fn new() -> Self {
-        Self { _private: () }
+        Self {
+            active: Vec::new(),
+            tasks: Vec::new(),
+        }
     }
 
     /// Register an agent and attach it.
     ///
     /// Skips the agent, without failing, when the session supports none of its
-    /// domains — the feature is simply unavailable here.
+    /// domains — the feature is simply unavailable here. A [`DomainAgent::attach`]
+    /// error is likewise skipped (logged) so one broken feature cannot take the
+    /// rest of the session down.
+    ///
+    /// Domain subscriptions are opened **before** `attach`, so events published
+    /// while enabling (e.g. `Debugger.scriptParsed`) are buffered into the agent
+    /// task rather than lost to a late subscriber.
     pub async fn register<A: DomainAgent>(
         &mut self,
-        _agent: A,
-        _session: &SessionHandle,
+        mut agent: A,
+        session: &SessionHandle,
     ) -> Result<(), SessionError> {
-        todo!("T-010")
+        if !domains_available(session, A::DOMAINS) {
+            tracing::info!(
+                agent = A::NAME,
+                "skipping agent: none of its domains are available on this target"
+            );
+            return Ok(());
+        }
+
+        let (event_tx, event_rx) = mpsc::unbounded_channel::<NormalizedFrame>();
+        for &domain in A::DOMAINS {
+            let mut sub = session.subscribe_domain(domain);
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                while let Some(frame) = sub.next().await {
+                    if event_tx.send(frame).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        // Drop the registry's clone so `event_rx` closes when every subscriber
+        // task exits (session ended).
+        drop(event_tx);
+
+        if let Err(err) = agent.attach(session).await {
+            tracing::warn!(
+                agent = A::NAME,
+                error = %err,
+                "agent attach failed; feature unavailable for this session"
+            );
+            return Ok(());
+        }
+
+        let name = A::NAME;
+        let session = session.clone();
+        let task = tokio::spawn(async move {
+            run_agent(agent, session, event_rx).await;
+        });
+
+        self.active.push(name);
+        self.tasks.push(task);
+        Ok(())
     }
 
     /// The names of agents that attached successfully.
     pub fn active(&self) -> Vec<&'static str> {
-        todo!("T-010")
+        self.active.clone()
+    }
+}
+
+impl Drop for AgentRegistry {
+    fn drop(&mut self) {
+        for task in self.tasks.drain(..) {
+            task.abort();
+        }
+    }
+}
+
+/// Whether any of `domains` looks usable on this session.
+///
+/// Uses `Domain.enable` as the probe member: that is what every agent calls
+/// first, and capability gating already treats a missing enable as "domain
+/// absent".
+fn domains_available(session: &SessionHandle, domains: &[Domain]) -> bool {
+    domains
+        .iter()
+        .any(|&domain| session.supports(domain, "enable").is_available())
+}
+
+/// Fold buffered and live domain events into one agent until the session ends.
+async fn run_agent<A: DomainAgent>(
+    mut agent: A,
+    session: SessionHandle,
+    mut events: mpsc::UnboundedReceiver<NormalizedFrame>,
+) {
+    while let Some(frame) = events.recv().await {
+        if let Err(err) = agent.on_event(&frame).await {
+            tracing::warn!(
+                agent = A::NAME,
+                error = %err,
+                "agent on_event failed; continuing"
+            );
+        }
+    }
+
+    if let Err(err) = agent.detach(&session).await {
+        tracing::warn!(agent = A::NAME, error = %err, "agent detach failed");
     }
 }

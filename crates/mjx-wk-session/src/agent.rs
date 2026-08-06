@@ -11,13 +11,16 @@
 //!
 //! # The snapshot rule
 //!
-//! [`DomainAgent::snapshot`] returns an `Arc`. The UI thread clones the `Arc`
-//! and reads from it for the duration of a frame; the agent, meanwhile, builds
-//! the next version. Neither waits for the other, which is what keeps a 5 MB
+//! [`DomainAgent::snapshot`] returns an `Arc`. The registry stores that behind
+//! an [`ArcSwap`](arc_swap::ArcSwap) and republishes after attach and after
+//! every successful `on_event`. The UI thread clones the `Arc` from the swap
+//! and reads for the duration of a frame; the agent, meanwhile, builds the
+//! next version. Neither waits for the other, which is what keeps a 5 MB
 //! script arriving from ever costing a dropped frame.
 
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use mjx_wk_dialect::NormalizedFrame;
 use mjx_wk_protocol::Domain;
@@ -25,6 +28,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::{SessionError, SessionHandle};
+
+/// Published model handle the UI reads without locking.
+///
+/// Cheap to clone: it is an `Arc` around an `ArcSwap`.
+pub type AgentSnapshot<M> = Arc<ArcSwap<M>>;
 
 /// One feature's view of a debuggee.
 #[async_trait]
@@ -58,7 +66,9 @@ pub trait DomainAgent: Send + std::fmt::Debug + 'static {
 
     /// Publish the current model.
     ///
-    /// Cheap, and called at least once per rendered frame.
+    /// Cheap, and called at least once after attach and after every successful
+    /// `on_event` so the [`AgentRegistry`] can push into the agent's
+    /// [`AgentSnapshot`].
     fn snapshot(&self) -> Arc<Self::Model>;
 
     /// Release debuggee-side resources.
@@ -77,7 +87,8 @@ pub trait DomainAgent: Send + std::fmt::Debug + 'static {
 ///
 /// Holds each agent behind its own task, so a slow fold in one feature cannot
 /// stall another, and routes each event to the agents whose domains it belongs
-/// to.
+/// to. Each successful registration returns an [`AgentSnapshot`] the host holds
+/// for the UI thread.
 #[derive(Debug, Default)]
 pub struct AgentRegistry {
     active: Vec<&'static str>,
@@ -95,25 +106,28 @@ impl AgentRegistry {
 
     /// Register an agent and attach it.
     ///
-    /// Skips the agent, without failing, when the session supports none of its
-    /// domains — the feature is simply unavailable here. A [`DomainAgent::attach`]
-    /// error is likewise skipped (logged) so one broken feature cannot take the
-    /// rest of the session down.
+    /// Returns `Ok(Some(snapshot))` when the agent attached and is folding
+    /// events. Returns `Ok(None)` when the agent is skipped — none of its
+    /// domains are available, or `attach` failed — without failing the
+    /// registry, so one broken feature cannot take the rest of the session down.
     ///
     /// Domain subscriptions are opened **before** `attach`, so events published
     /// while enabling (e.g. `Debugger.scriptParsed`) are buffered into the agent
     /// task rather than lost to a late subscriber.
+    ///
+    /// The returned [`AgentSnapshot`] is seeded after a successful `attach` and
+    /// republished after every successful `on_event`.
     pub async fn register<A: DomainAgent>(
         &mut self,
         mut agent: A,
         session: &SessionHandle,
-    ) -> Result<(), SessionError> {
+    ) -> Result<Option<AgentSnapshot<A::Model>>, SessionError> {
         if !domains_available(session, A::DOMAINS) {
             tracing::info!(
                 agent = A::NAME,
                 "skipping agent: none of its domains are available on this target"
             );
-            return Ok(());
+            return Ok(None);
         }
 
         let (event_tx, event_rx) = mpsc::unbounded_channel::<NormalizedFrame>();
@@ -138,18 +152,21 @@ impl AgentRegistry {
                 error = %err,
                 "agent attach failed; feature unavailable for this session"
             );
-            return Ok(());
+            return Ok(None);
         }
+
+        let published = Arc::new(ArcSwap::from(agent.snapshot()));
+        let ui_handle = Arc::clone(&published);
 
         let name = A::NAME;
         let session = session.clone();
         let task = tokio::spawn(async move {
-            run_agent(agent, session, event_rx).await;
+            run_agent(agent, session, event_rx, published).await;
         });
 
         self.active.push(name);
         self.tasks.push(task);
-        Ok(())
+        Ok(Some(ui_handle))
     }
 
     /// The names of agents that attached successfully.
@@ -182,6 +199,7 @@ async fn run_agent<A: DomainAgent>(
     mut agent: A,
     session: SessionHandle,
     mut events: mpsc::UnboundedReceiver<NormalizedFrame>,
+    published: AgentSnapshot<A::Model>,
 ) {
     while let Some(frame) = events.recv().await {
         if let Err(err) = agent.on_event(&frame).await {
@@ -190,7 +208,9 @@ async fn run_agent<A: DomainAgent>(
                 error = %err,
                 "agent on_event failed; continuing"
             );
+            continue;
         }
+        published.store(agent.snapshot());
     }
 
     if let Err(err) = agent.detach(&session).await {

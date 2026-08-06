@@ -45,7 +45,7 @@ use mjx_wk_transport::{Target, Transport, TransportError};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-pub use agent::{AgentRegistry, DomainAgent};
+pub use agent::{AgentRegistry, AgentSnapshot, DomainAgent};
 pub use gating::Capabilities;
 
 /// How many events a subscriber may buffer before it starts lagging.

@@ -118,7 +118,7 @@ async fn register_attaches_and_lists_the_agent() {
     let mut registry = AgentRegistry::new();
     let events = Arc::new(AtomicUsize::new(0));
 
-    registry
+    let snap = registry
         .register(
             CountingAgent {
                 events: Arc::clone(&events),
@@ -126,9 +126,11 @@ async fn register_attaches_and_lists_the_agent() {
             &session,
         )
         .await
-        .expect("register");
+        .expect("register")
+        .expect("agent attached");
 
     assert_eq!(registry.active(), vec!["counting"]);
+    let _ = snap.load();
 }
 
 #[tokio::test]
@@ -149,10 +151,11 @@ async fn register_skips_when_no_domain_is_available() {
     assert!(!session.supports(Domain::Canvas, "enable").is_available());
 
     let mut registry = AgentRegistry::new();
-    registry
+    let snap = registry
         .register(CanvasOnlyAgent, &session)
         .await
         .expect("register returns Ok on skip");
+    assert!(snap.is_none());
     assert!(registry.active().is_empty());
 }
 
@@ -164,10 +167,11 @@ async fn register_skips_attach_failure_without_failing_the_registry() {
 "#;
     let session = attach(trace).await;
     let mut registry = AgentRegistry::new();
-    registry
+    let snap = registry
         .register(FailingAttachAgent, &session)
         .await
         .expect("attach failure is skipped");
+    assert!(snap.is_none());
     assert!(registry.active().is_empty());
 }
 
@@ -184,7 +188,7 @@ async fn registered_agent_receives_domain_events() {
     let events = Arc::new(AtomicUsize::new(0));
     let mut registry = AgentRegistry::new();
 
-    registry
+    let snap = registry
         .register(
             CountingAgent {
                 events: Arc::clone(&events),
@@ -192,7 +196,8 @@ async fn registered_agent_receives_domain_events() {
             &session,
         )
         .await
-        .expect("register");
+        .expect("register")
+        .expect("agent attached");
 
     // CountingAgent::attach drives Debugger.enable, which releases the
     // Debugger.resumed event sitting ahead of the enable reply.
@@ -205,5 +210,79 @@ async fn registered_agent_receives_domain_events() {
     assert!(
         events.load(Ordering::SeqCst) >= 1,
         "agent should have folded Debugger.resumed"
+    );
+    // Successful on_event republishes into the ArcSwap the host holds.
+    let _ = snap.load();
+}
+
+#[derive(Debug, Default)]
+struct CountingModel {
+    events: usize,
+}
+
+#[derive(Debug)]
+struct SnapshotAgent {
+    model: CountingModel,
+}
+
+#[async_trait]
+impl DomainAgent for SnapshotAgent {
+    type Model = CountingModel;
+
+    const DOMAINS: &'static [Domain] = &[Domain::Debugger];
+    const NAME: &'static str = "snapshot-agent";
+
+    async fn attach(&mut self, session: &SessionHandle) -> Result<(), SessionError> {
+        session
+            .call(mjx_wk_protocol::generated::debugger::commands::Enable {})
+            .await?;
+        Ok(())
+    }
+
+    async fn on_event(&mut self, _event: &NormalizedFrame) -> Result<(), SessionError> {
+        self.model.events += 1;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Arc<Self::Model> {
+        Arc::new(CountingModel {
+            events: self.model.events,
+        })
+    }
+}
+
+#[tokio::test]
+async fn register_publishes_model_updates_through_arcswap() {
+    let trace = r#"
+{"dir":"send","frame":{"id":1,"method":"Inspector.enable","params":{}}}
+{"dir":"recv","frame":{"id":1,"result":{}}}
+{"dir":"send","frame":{"id":2,"method":"Debugger.enable","params":{}}}
+{"dir":"recv","frame":{"method":"Debugger.resumed","params":{}}}
+{"dir":"recv","frame":{"id":2,"result":{}}}
+"#;
+    let session = attach(trace).await;
+    let mut registry = AgentRegistry::new();
+    let snap = registry
+        .register(
+            SnapshotAgent {
+                model: CountingModel::default(),
+            },
+            &session,
+        )
+        .await
+        .expect("register")
+        .expect("agent attached");
+
+    assert_eq!(snap.load().events, 0);
+
+    for _ in 0..50 {
+        if snap.load().events > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        snap.load().events >= 1,
+        "ArcSwap must republish after on_event"
     );
 }

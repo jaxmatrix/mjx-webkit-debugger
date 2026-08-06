@@ -100,6 +100,8 @@ backend and no other crate changes when it lands.
 |---|---|
 | `SessionHandle` | `call` / `subscribe` / `supports` / `for_target`; cheap, cloneable, `Send` |
 | `DomainAgent` | **the extension point for every feature, present and future** |
+| `AgentRegistry` | attaches agents; each successful `register` returns an `AgentSnapshot` (`Arc<ArcSwap<Model>>`) seeded after attach and republished after every successful `on_event` |
+| `AgentSnapshot` | the UI-readable handle for one agent's model — pointer swap, never a lock |
 | `Capabilities` | optimistic with a negative cache — see below |
 | `UnsupportedReason` | `Dialect` \| `DebuggeeBuild` \| `TargetKind` |
 

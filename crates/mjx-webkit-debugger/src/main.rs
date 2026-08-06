@@ -10,6 +10,11 @@
 
 mod app;
 mod attach;
+mod fixture_seed;
+mod session_host;
+mod snapshot;
+mod support;
+mod ui_thread;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

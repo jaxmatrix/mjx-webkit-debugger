@@ -8,8 +8,15 @@
 //! must be O(1) and must not allocate.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use crate::SourceId;
+
+/// Mean line length (bytes) at or above which we treat the file as minified.
+///
+/// Chosen so ordinary multi-megabyte sources stay un-minified while a short
+/// two-line bundle still trips the heuristic — size alone is the wrong signal.
+const MINIFIED_MEAN_LINE_BYTES: usize = 200;
 
 /// Byte offsets of every line start, so a line number becomes a slice.
 ///
@@ -133,33 +140,41 @@ impl LineIndex {
 /// Cloning is cheap: the text is shared, not copied.
 #[derive(Debug, Clone)]
 pub struct SourceText {
-    _private: (),
+    id: SourceId,
+    text: Arc<str>,
+    index: LineIndex,
 }
 
 impl SourceText {
     /// Take ownership of some text and index it.
-    pub fn new(_id: SourceId, _text: String) -> Self {
-        todo!("T-005")
+    pub fn new(id: SourceId, text: String) -> Self {
+        let index = LineIndex::build(&text);
+        Self {
+            id,
+            text: Arc::from(text),
+            index,
+        }
     }
 
     /// Which source this is.
     pub fn id(&self) -> SourceId {
-        todo!("T-005")
+        self.id
     }
 
     /// The whole text.
     pub fn as_str(&self) -> &str {
-        todo!("T-005")
+        &self.text
     }
 
     /// One line, without its terminator.
-    pub fn line(&self, _line: u32) -> Option<&str> {
-        todo!("T-005")
+    pub fn line(&self, line: u32) -> Option<&str> {
+        let range = self.index.line_range(line)?;
+        self.text.get(range)
     }
 
     /// The line index.
     pub fn index(&self) -> &LineIndex {
-        todo!("T-005")
+        &self.index
     }
 
     /// Whether this looks like generated or minified output.
@@ -168,7 +183,11 @@ impl SourceText {
     /// line length, not file size: a 5 MB file of ordinary code is not
     /// minified, and a 40 kB bundle on two lines is.
     pub fn looks_minified(&self) -> bool {
-        todo!("T-005")
+        let lines = self.index.line_count() as usize;
+        if lines == 0 {
+            return false;
+        }
+        self.text.len() / lines >= MINIFIED_MEAN_LINE_BYTES
     }
 }
 
@@ -227,12 +246,82 @@ mod tests {
 
     #[test]
     fn offset_of_counts_utf16_columns_for_non_latin() {
-        // Each hiragana / kanji here is one UTF-16 code unit and three UTF-8 bytes.
+        // Each hiragana is one UTF-16 code unit and three UTF-8 bytes.
         let text = "変数 = 1";
         let index = LineIndex::build(text);
         assert_eq!(index.offset_of(text, 0, 0), Some(0));
         assert_eq!(index.offset_of(text, 0, 1), Some(3)); // second char
         assert_eq!(index.offset_of(text, 0, 2), Some(6)); // space after identifier
         assert_eq!(&text[index.offset_of(text, 0, 2).unwrap()..], " = 1");
+    }
+
+    #[test]
+    fn source_text_shares_and_exposes_lines() {
+        let src = SourceText::new(SourceId(7), "one\ntwo\n".into());
+        assert_eq!(src.id(), SourceId(7));
+        assert_eq!(src.line(0), Some("one"));
+        assert_eq!(src.line(1), Some("two"));
+        assert_eq!(src.line(2), None);
+        assert_eq!(src.index().line_count(), 2);
+        let clone = src.clone();
+        // Clone must share the text allocation — the UI holds many snapshots.
+        assert_eq!(src.as_str().as_ptr(), clone.as_str().as_ptr());
+    }
+
+    #[test]
+    fn looks_minified_keys_on_mean_line_length_not_size() {
+        // ~5 MB of ordinary short lines must not look minified.
+        let ordinary = "fn f() {}\n".repeat(500_000);
+        assert!(ordinary.len() > 4_000_000);
+        let ordinary_src = SourceText::new(SourceId(1), ordinary);
+        assert!(!ordinary_src.looks_minified());
+
+        // A 40 kB bundle on two lines must look minified.
+        let chunk = "x".repeat(20_000);
+        let tiny_bundle = format!("{chunk}\n{chunk}");
+        assert!(tiny_bundle.len() < 50_000);
+        let mini = SourceText::new(SourceId(2), tiny_bundle);
+        assert!(mini.looks_minified());
+    }
+
+    #[test]
+    fn indexes_large_bundle_fixture_script_source() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/large-bundle.jsonl"
+        );
+        let raw = std::fs::read_to_string(path).expect("large-bundle fixture");
+        let script = extract_script_source(&raw).expect("scriptSource in fixture");
+        assert!(script.len() > 1_000_000, "fixture should be multi-MB");
+
+        let src = SourceText::new(SourceId(1), script);
+        assert!(src.index().line_count() > 1);
+        let mid = src.index().line_count() / 2;
+        let line = src.line(mid).expect("mid line");
+        assert!(!line.is_empty() || mid == 0);
+        // Random-access must be O(1) and allocation-free beyond the &str.
+        let range = src.index().line_range(mid).unwrap();
+        assert_eq!(&src.as_str()[range], src.line(mid).unwrap());
+    }
+
+    fn extract_script_source(jsonl: &str) -> Option<String> {
+        for line in jsonl.lines() {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let Some(message) = v.pointer("/frame/params/message").and_then(|m| m.as_str()) else {
+                continue;
+            };
+            let Ok(inner) = serde_json::from_str::<serde_json::Value>(message) else {
+                continue;
+            };
+            if let Some(src) = inner
+                .pointer("/result/scriptSource")
+                .and_then(|s| s.as_str())
+            {
+                return Some(src.to_owned());
+            }
+        }
+        None
     }
 }

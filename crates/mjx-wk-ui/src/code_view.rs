@@ -31,6 +31,7 @@ use egui::{
 
 use mjx_wk_source::{HighlightSpan, SourceId, SourceLocation, SourceText};
 
+use crate::breakpoint_list::{BreakpointEdit, encode_probe_action, probe_supported};
 use crate::{Action, PanelCtx, Theme};
 
 /// Extra lines requested around the viewport for highlighting. Keeps scroll
@@ -50,6 +51,10 @@ pub struct CodeView {
     last_visible: Range<u32>,
     /// Reused so line-number labels do not allocate every row every frame.
     line_no_buf: String,
+    /// Condition / logpoint / probe editor opened from the gutter context menu.
+    gutter_edit: Option<BreakpointEdit>,
+    /// Request focus on the gutter editor once after it opens.
+    focus_gutter_edit: bool,
 }
 
 impl CodeView {
@@ -58,7 +63,20 @@ impl CodeView {
             reveal_line: None,
             last_visible: 0..0,
             line_no_buf: String::with_capacity(8),
+            gutter_edit: None,
+            focus_gutter_edit: false,
         }
+    }
+
+    /// Open gutter editor, if any. Useful from tests.
+    pub fn gutter_edit(&self) -> Option<&BreakpointEdit> {
+        self.gutter_edit.as_ref()
+    }
+
+    /// Open a condition / logpoint / probe editor (gutter menu / tests).
+    pub fn begin_gutter_edit(&mut self, edit: BreakpointEdit) {
+        self.gutter_edit = Some(edit);
+        self.focus_gutter_edit = true;
     }
 
     /// Visible lines from the previous frame — what the highlighter should cover
@@ -131,172 +149,283 @@ impl CodeView {
         // to size the scroll area.
         let char_width = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
 
-        let output = scroll.show_rows(
-            ui,
-            row_height,
-            line_count as usize,
-            |ui, row_range| {
-                let start = row_range.start as u32;
-                let end = row_range.end as u32;
-                self.last_visible = start..end;
+        let output = scroll.show_rows(ui, row_height, line_count as usize, |ui, row_range| {
+            let start = row_range.start as u32;
+            let end = row_range.end as u32;
+            self.last_visible = start..end;
 
-                let available_code_width =
-                    (ui.available_width() - theme.gutter_width).max(0.0);
+            let available_code_width = (ui.available_width() - theme.gutter_width).max(0.0);
 
-                for row in row_range {
-                    let line = row as u32;
-                    let y = ui.cursor().top();
-                    let full = Rect::from_min_size(
-                        pos2(ui.max_rect().left(), y),
-                        Vec2::new(ui.available_width(), row_height),
+            for row in row_range {
+                let line = row as u32;
+                let y = ui.cursor().top();
+                let full = Rect::from_min_size(
+                    pos2(ui.max_rect().left(), y),
+                    Vec2::new(ui.available_width(), row_height),
+                );
+
+                if model.execution_line == Some(line) {
+                    let wash = Color32::from_rgba_unmultiplied(
+                        theme.execution_line.r(),
+                        theme.execution_line.g(),
+                        theme.execution_line.b(),
+                        40,
                     );
+                    ui.painter().rect_filled(full, CornerRadius::ZERO, wash);
+                }
 
-                    if model.execution_line == Some(line) {
-                        let wash = Color32::from_rgba_unmultiplied(
-                            theme.execution_line.r(),
-                            theme.execution_line.g(),
-                            theme.execution_line.b(),
-                            40,
-                        );
-                        ui.painter()
-                            .rect_filled(full, CornerRadius::ZERO, wash);
-                    }
+                let gutter =
+                    Rect::from_min_size(full.min, Vec2::new(theme.gutter_width, row_height));
+                ui.painter()
+                    .rect_filled(gutter, CornerRadius::ZERO, theme.gutter);
 
-                    let gutter = Rect::from_min_size(
-                        full.min,
-                        Vec2::new(theme.gutter_width, row_height),
-                    );
-                    ui.painter()
-                        .rect_filled(gutter, CornerRadius::ZERO, theme.gutter);
+                let mark = model
+                    .breakpoints
+                    .iter()
+                    .find(|(l, _)| *l == line)
+                    .map(|(_, m)| *m);
 
-                    let mark = model
-                        .breakpoints
-                        .iter()
-                        .find(|(l, _)| *l == line)
-                        .map(|(_, m)| *m);
+                let gutter_id = ui.id().with(("gutter", line));
+                let gutter_resp = ui.interact(gutter, gutter_id, Sense::click());
+                if gutter_resp.clicked() {
+                    actions.push(Action::ToggleBreakpoint(SourceLocation::line_start(
+                        source_id, line,
+                    )));
+                }
 
-                    let gutter_id = ui.id().with(("gutter", line));
-                    let gutter_resp = ui.interact(gutter, gutter_id, Sense::click());
-                    if gutter_resp.clicked() {
-                        actions.push(Action::ToggleBreakpoint(SourceLocation::line_start(
-                            source_id, line,
-                        )));
-                    }
-                    // AccessKit / snapshot distinguishability for each mark.
-                    if let Some(mark) = mark {
-                        gutter_resp.clone().on_hover_text(mark.access_label());
-                        // `widget_info` keeps kittest labels stable without depending on hover.
-                        gutter_resp.widget_info(|| {
-                            egui::WidgetInfo::labeled(
-                                egui::WidgetType::Button,
-                                true,
-                                mark.access_label(),
-                            )
+                let loc = SourceLocation::line_start(source_id, line);
+                let has_breakpoint = mark.is_some();
+                let is_disabled = mark == Some(BreakpointMark::Disabled);
+                gutter_resp.context_menu(|ui| {
+                    if ui.button("Edit condition…").clicked() {
+                        self.gutter_edit = Some(BreakpointEdit::Condition {
+                            location: loc,
+                            draft: String::new(),
                         });
-                    } else {
-                        gutter_resp.widget_info(|| {
-                            egui::WidgetInfo::labeled(
-                                egui::WidgetType::Button,
-                                true,
-                                "gutter empty",
-                            )
+                        self.focus_gutter_edit = true;
+                        ui.close();
+                    }
+                    if ui.button("Add logpoint…").clicked() {
+                        self.gutter_edit = Some(BreakpointEdit::Logpoint {
+                            location: loc,
+                            draft: String::new(),
                         });
+                        self.focus_gutter_edit = true;
+                        ui.close();
                     }
+                    if probe_supported(ctx) && ui.button("Add probe…").clicked() {
+                        self.gutter_edit = Some(BreakpointEdit::Probe {
+                            location: loc,
+                            draft: String::new(),
+                        });
+                        self.focus_gutter_edit = true;
+                        ui.close();
+                    }
+                    if has_breakpoint && !is_disabled && ui.button("Disable").clicked() {
+                        actions.push(Action::ToggleBreakpoint(loc));
+                        ui.close();
+                    }
+                    if is_disabled && ui.button("Enable").clicked() {
+                        actions.push(Action::ToggleBreakpoint(loc));
+                        ui.close();
+                    }
+                    if has_breakpoint && ui.button("Remove breakpoint").clicked() {
+                        actions.push(Action::RemoveBreakpoint(loc));
+                        ui.close();
+                    }
+                });
 
-                    let mark_center = pos2(
-                        gutter.left() + 10.0,
-                        gutter.center().y,
-                    );
-                    if let Some(mark) = mark {
-                        paint_breakpoint_mark(ui, mark_center, mark, theme);
-                    }
-                    if model.execution_line == Some(line) {
-                        paint_execution_arrow(ui, mark_center, theme.execution_line);
-                    }
+                // AccessKit / snapshot distinguishability for each mark.
+                if let Some(mark) = mark {
+                    gutter_resp.clone().on_hover_text(mark.access_label());
+                    // `widget_info` keeps kittest labels stable without depending on hover.
+                    gutter_resp.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Button,
+                            true,
+                            mark.access_label(),
+                        )
+                    });
+                } else {
+                    gutter_resp.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "gutter empty")
+                    });
+                }
 
-                    self.line_no_buf.clear();
-                    // Display is one-based; protocol lines stay zero-based.
-                    use std::fmt::Write as _;
-                    let _ = write!(self.line_no_buf, "{}", line + 1);
-                    let line_no_pos = pos2(gutter.left() + 22.0, gutter.top());
-                    ui.painter().text(
-                        line_no_pos,
-                        egui::Align2::LEFT_TOP,
-                        self.line_no_buf.as_str(),
-                        font.clone(),
+                let mark_center = pos2(gutter.left() + 10.0, gutter.center().y);
+                if let Some(mark) = mark {
+                    paint_breakpoint_mark(ui, mark_center, mark, theme);
+                }
+                if model.execution_line == Some(line) {
+                    paint_execution_arrow(ui, mark_center, theme.execution_line);
+                }
+
+                self.line_no_buf.clear();
+                // Display is one-based; protocol lines stay zero-based.
+                use std::fmt::Write as _;
+                let _ = write!(self.line_no_buf, "{}", line + 1);
+                let line_no_pos = pos2(gutter.left() + 22.0, gutter.top());
+                ui.painter().text(
+                    line_no_pos,
+                    egui::Align2::LEFT_TOP,
+                    self.line_no_buf.as_str(),
+                    font.clone(),
+                    theme.text_dim,
+                );
+
+                let hair_x = gutter.right() - 1.0;
+                ui.painter().line_segment(
+                    [pos2(hair_x, gutter.top()), pos2(hair_x, gutter.bottom())],
+                    Stroke::new(1.0, theme.hairline),
+                );
+
+                let code_rect = Rect::from_min_max(pos2(gutter.right(), full.top()), full.max);
+
+                let Some(raw_line) = model.text.line(line) else {
+                    ui.allocate_rect(full, Sense::hover());
+                    continue;
+                };
+
+                // Clip: never wrap, never lay out megabytes of a minified line.
+                let max_chars =
+                    ((available_code_width / char_width).ceil() as usize).clamp(1, MAX_PAINT_CHARS);
+                let painted = truncate_chars(raw_line, max_chars);
+
+                let span_idx = line
+                    .checked_sub(model.spans_start_line)
+                    .and_then(|i| usize::try_from(i).ok());
+                let spans = span_idx
+                    .and_then(|i| model.spans.get(i))
+                    .map(|s| s.as_slice())
+                    .unwrap_or(&[]);
+
+                let galley = layout_line(ui, painted, spans, theme, font.clone());
+                let text_pos = pos2(code_rect.left() + 4.0, code_rect.top());
+                ui.painter()
+                    .with_clip_rect(code_rect)
+                    .galley(text_pos, galley, theme.text);
+
+                if let Some((_, value)) = model.inline_values.iter().find(|(l, _)| *l == line) {
+                    let galley = ui.fonts_mut(|f| {
+                        f.layout_no_wrap(value.clone(), font.clone(), theme.text_dim)
+                    });
+                    let x = code_rect.right() - galley.size().x - 6.0;
+                    ui.painter().with_clip_rect(code_rect).galley(
+                        pos2(x.max(code_rect.left()), code_rect.top()),
+                        galley,
                         theme.text_dim,
                     );
-
-                    let hair_x = gutter.right() - 1.0;
-                    ui.painter().line_segment(
-                        [pos2(hair_x, gutter.top()), pos2(hair_x, gutter.bottom())],
-                        Stroke::new(1.0, theme.hairline),
-                    );
-
-                    let code_rect = Rect::from_min_max(
-                        pos2(gutter.right(), full.top()),
-                        full.max,
-                    );
-
-                    let Some(raw_line) = model.text.line(line) else {
-                        ui.allocate_rect(full, Sense::hover());
-                        continue;
-                    };
-
-                    // Clip: never wrap, never lay out megabytes of a minified line.
-                    let max_chars = ((available_code_width / char_width).ceil() as usize)
-                        .clamp(1, MAX_PAINT_CHARS);
-                    let painted = truncate_chars(raw_line, max_chars);
-
-                    let span_idx = line
-                        .checked_sub(model.spans_start_line)
-                        .and_then(|i| usize::try_from(i).ok());
-                    let spans = span_idx
-                        .and_then(|i| model.spans.get(i))
-                        .map(|s| s.as_slice())
-                        .unwrap_or(&[]);
-
-                    let galley = layout_line(ui, painted, spans, theme, font.clone());
-                    let text_pos = pos2(code_rect.left() + 4.0, code_rect.top());
-                    ui.painter().with_clip_rect(code_rect).galley(
-                        text_pos,
-                        galley,
-                        theme.text,
-                    );
-
-                    if let Some((_, value)) = model
-                        .inline_values
-                        .iter()
-                        .find(|(l, _)| *l == line)
-                    {
-                        let galley = ui.fonts_mut(|f| {
-                            f.layout_no_wrap(
-                                value.clone(),
-                                font.clone(),
-                                theme.text_dim,
-                            )
-                        });
-                        let x = code_rect.right() - galley.size().x - 6.0;
-                        ui.painter().with_clip_rect(code_rect).galley(
-                            pos2(x.max(code_rect.left()), code_rect.top()),
-                            galley,
-                            theme.text_dim,
-                        );
-                    }
-
-                    // Advance the cursor by exactly one fixed row.
-                    ui.allocate_exact_size(
-                        Vec2::new(ui.available_width(), row_height),
-                        Sense::hover(),
-                    );
                 }
-            },
-        );
+
+                // Advance the cursor by exactly one fixed row.
+                ui.allocate_exact_size(Vec2::new(ui.available_width(), row_height), Sense::hover());
+            }
+        });
 
         // Assertable without measuring text: egui sizes content to rows × height
         // (with item_spacing.y = 0, that is exactly line_count × row_height).
         let _ = output;
+
+        if let Some(edit_actions) = self.paint_gutter_edit(ui, ctx) {
+            actions.extend(edit_actions);
+        }
+
         actions
+    }
+
+    fn paint_gutter_edit(&mut self, ui: &mut egui::Ui, ctx: &PanelCtx<'_>) -> Option<Vec<Action>> {
+        let theme = ctx.theme;
+        let Some(edit) = self.gutter_edit.as_mut() else {
+            return None;
+        };
+
+        let (title, hint) = match edit {
+            BreakpointEdit::Condition { .. } => ("Condition", "Break when true"),
+            BreakpointEdit::Logpoint { .. } => ("Logpoint", "Message to log"),
+            BreakpointEdit::Probe { .. } => ("Probe", "Expression to sample"),
+        };
+
+        let mut submit = false;
+        let mut cancel = false;
+        let mut actions = Vec::new();
+        let want_focus = self.focus_gutter_edit;
+
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(title).color(theme.accent));
+            let draft = match edit {
+                BreakpointEdit::Condition { draft, .. }
+                | BreakpointEdit::Logpoint { draft, .. }
+                | BreakpointEdit::Probe { draft, .. } => draft,
+            };
+            let response = ui.add(
+                egui::TextEdit::singleline(draft)
+                    .hint_text(hint)
+                    .desired_width(ui.available_width().max(120.0))
+                    .font(egui::TextStyle::Monospace)
+                    .id_salt("mjx_gutter_bp_edit"),
+            );
+            if want_focus {
+                response.request_focus();
+            }
+            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if enter && (response.has_focus() || response.lost_focus()) {
+                submit = true;
+            }
+            if ui.button("Set").clicked() {
+                submit = true;
+            }
+            if ui.button("Cancel").clicked() {
+                cancel = true;
+            }
+        });
+        self.focus_gutter_edit = false;
+
+        if cancel {
+            self.gutter_edit = None;
+            return Some(actions);
+        }
+        if submit {
+            let finished = self.gutter_edit.take();
+            if let Some(edit) = finished {
+                match edit {
+                    BreakpointEdit::Condition { location, draft } => {
+                        let value = {
+                            let t = draft.trim();
+                            if t.is_empty() {
+                                None
+                            } else {
+                                Some(t.to_owned())
+                            }
+                        };
+                        actions.push(Action::SetBreakpointCondition(location, value));
+                    }
+                    BreakpointEdit::Logpoint { location, draft } => {
+                        let value = {
+                            let t = draft.trim();
+                            if t.is_empty() {
+                                None
+                            } else {
+                                Some(t.to_owned())
+                            }
+                        };
+                        actions.push(Action::SetBreakpointAction(location, value));
+                    }
+                    BreakpointEdit::Probe { location, draft } => {
+                        let value = {
+                            let t = draft.trim();
+                            if t.is_empty() {
+                                None
+                            } else {
+                                Some(encode_probe_action(t))
+                            }
+                        };
+                        actions.push(Action::SetBreakpointAction(location, value));
+                    }
+                }
+            }
+            return Some(actions);
+        }
+        Some(actions)
     }
 }
 
@@ -547,7 +676,10 @@ mod scroll_sizing {
     #[test]
     fn highlight_window_adds_margin() {
         let w = super::CodeView::highlight_window(10..20, 100);
-        assert_eq!(w, (10 - super::HIGHLIGHT_MARGIN_LINES)..(20 + super::HIGHLIGHT_MARGIN_LINES));
+        assert_eq!(
+            w,
+            (10 - super::HIGHLIGHT_MARGIN_LINES)..(20 + super::HIGHLIGHT_MARGIN_LINES)
+        );
     }
 
     #[test]

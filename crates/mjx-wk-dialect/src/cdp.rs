@@ -89,6 +89,9 @@ const UNSUPPORTED: &[(Domain, &str)] = &[
     (Domain::Debugger, "setPauseOnAssertions"),
     (Domain::Debugger, "continueUntilNextRunLoop"),
     (Domain::Debugger, "setPauseForInternalScripts"),
+    // Chrome's `debug(fn)` is a console command, not a protocol member.
+    (Domain::Debugger, "addSymbolicBreakpoint"),
+    (Domain::Debugger, "removeSymbolicBreakpoint"),
     // Runtime's type and control-flow profilers are JavaScriptCore features.
     (Domain::Runtime, "enableTypeProfiler"),
     (Domain::Runtime, "enableControlFlowProfiler"),

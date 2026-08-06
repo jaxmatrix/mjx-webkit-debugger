@@ -1,0 +1,39 @@
+# Release contract for mjx-webkit-debugger (T-015).
+#
+# Implemented by `.github/workflows/release.yml`. Not a cargo-dist config:
+# workspace members inherit `publish = false`, and forcing `dist = true` would
+# require editing `crates/` (out of scope for this ticket). This file is the
+# single source of truth for *what* a tagged release must ship.
+
+[release]
+# App binary produced by `cargo build -p mjx-webkit-debugger --release`
+package = "mjx-webkit-debugger"
+binary = "mjx-webkit-debugger"
+# Trigger: push of a tag matching this pattern (semver with leading v)
+tag-pattern = "v*"
+checksum = "sha256"
+
+# Architectural invariant: must run in the release workflow, not only in CI.
+verify-no-webview = true
+
+# Artifact matrix. Archive stem is `mjx-webkit-debugger-<version>-<name>`.
+[[release.targets]]
+name = "linux-x86_64"
+rust-target = "x86_64-unknown-linux-gnu"
+runner = "ubuntu-latest"
+
+[[release.targets]]
+name = "linux-aarch64"
+rust-target = "aarch64-unknown-linux-gnu"
+runner = "ubuntu-24.04-arm"
+
+[[release.targets]]
+# Fat binary via `lipo` of aarch64-apple-darwin + x86_64-apple-darwin.
+name = "macos-universal"
+rust-target = "universal-apple-darwin"
+runner = "macos-latest"
+
+[[release.targets]]
+name = "windows-x86_64"
+rust-target = "x86_64-pc-windows-msvc"
+runner = "windows-latest"

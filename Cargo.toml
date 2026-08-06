@@ -65,6 +65,7 @@ mjx-wk-storage = { path = "crates/mjx-wk-storage" }
 mjx-wk-graphics = { path = "crates/mjx-wk-graphics" }
 mjx-wk-audit = { path = "crates/mjx-wk-audit" }
 mjx-wk-ui = { path = "crates/mjx-wk-ui" }
+mjx-wk-perf = { path = "crates/mjx-wk-perf" }
 
 # Core
 serde = { version = "1", features = ["derive"] }
@@ -126,3 +127,10 @@ opt-level = 2
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Budget benches: keep release opts so peer wall-clock benches (e.g. T-005
+# `text`) stay meaningful, but skip thin LTO so CI cold caches stay tolerable.
+[profile.bench]
+inherits = "release"
+lto = false
+codegen-units = 16

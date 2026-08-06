@@ -31,4 +31,17 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+<<<<<<< HEAD
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
+=======
+egui_kittest.workspace = true
+mjx-wk-perf = { workspace = true }
+
+[[bench]]
+name = "scroll"
+harness = false
+
+[[bench]]
+name = "frame"
+harness = false
+>>>>>>> 84c507d (test(ui): enforce scroll and UI-frame budget benches)
